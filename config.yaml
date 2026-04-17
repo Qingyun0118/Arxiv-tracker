@@ -35,7 +35,7 @@ lang: "both"
 # —— 摘要设置 ——
 # mode: none / heuristic / llm
 summary:
-  mode: none # none / heuristic / llm
+  mode: llm # none / heuristic / llm
   # scope: tldr / full / both
   scope: "both"
 
@@ -155,8 +155,8 @@ semantic:
   ranking:
     # 最终排序分数 = time_weight * freshness_score + semantic_weight * semantic_score
     # freshness_score 与 semantic_score 均归一到 0~10
-    time_weight: 0.6
-    semantic_weight: 0.4
+    time_weight: 0.5
+    semantic_weight: 0.5
   zotero:
     user_id_env: "ZOTERO_ID"
     api_key_env: "ZOTERO_KEY"
