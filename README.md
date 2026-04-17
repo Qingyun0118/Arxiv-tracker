@@ -17,6 +17,7 @@
 ## 😮 项目亮点（Highlights）
 
 - 🔎 **多学科多主题检索**：支持 `cs.CV / cs.LG / cs.AI / cs.CL` 等分类，自由组合关键词；`logic: AND/OR` 控制“分类集合”与“关键词集合”的布尔关系
+- 🧩 **严格布尔关键词表达式**：支持 `keyword_expression`（括号 + `AND/OR`），用于精细控制检索条件
 - 🧠 **LLM 双语总结**：**英文一段 + 中文一段** 或两阶段摘要（TL;DR + Method Card + Discussion）
 - 🔗 **自动提取链接**：Abs / PDF / 代码仓库 / 项目页
 - 📨 **邮件推送**：QQ SMTP（465/SSL 或 587/STARTTLS），支持多收件人
@@ -51,7 +52,7 @@ arxiv_tracker/        # 核心逻辑（客户端、解析、摘要、站点、�
 docs/                 # GitHub Pages 站点输出（自动生成）
 outputs/              # 每次运行保存的 JSON/MD（自动生成）
 .state/               # 去重状态（seen.json，建议随仓库提交）
-.github/workflows/    # digest.yml 定时任务（每日 03:00 北京时间）
+.github/workflows/    # digest.yml 定时任务（每日 21:00 北京时间）
 config.yaml           # 检索/摘要/邮件/站点/去重 配置
 requirements.txt      # 运行依赖
 ```
@@ -72,12 +73,15 @@ requirements.txt      # 运行依赖
 
 - `OPENAI_COMPAT_API_KEY`：任意 OpenAI 兼容平台的 API Key（如 **DeepSeek**、**SiliconFlow**）  
 - `SMTP_PASS`：QQ 邮箱 **SMTP 授权码**（非登录密码）
+- `SERPAPI_API_KEY`：Google Scholar 检索 API Key（若启用 `sources.scholar`）
+- `ZOTERO_KEY`：Zotero API Key（若启用语义重排）
 
 **Variables（非机密，可用 Secrets 替代）**
 
 - `EMAIL_TO`：收件人（多个用 `,` 或 `;` 分隔，比如 `a@qq.com,b@xx.com`）
 - `EMAIL_SENDER`：发件人邮箱（通常与 SMTP 用户一致，比如 `xxx@qq.com`）
 - `SMTP_USER`：SMTP 用户名（通常 = 发件人邮箱，比如 `xxx@qq.com`）
+- `ZOTERO_ID`：Zotero 用户 ID（若启用语义重排）
 
 ### 3) 启用 GitHub Pages
 
@@ -100,7 +104,7 @@ on:
         type: choice
         options: ["false", "true"]
   schedule:
-    - cron: "0 19 * * *"  # 每天 19:00 UTC = 北京时间次日 03:00
+    - cron: "0 13 * * *"  # 每天 13:00 UTC = 北京时间 21:00
 
 concurrency:
   group: arxiv-digest
@@ -179,6 +183,8 @@ categories: ["cs.CV", "cs.LG", "cs.AI"]
 keywords:
   - "open vocabulary segmentation"
   - "vision-language grounding"
+# [可选] 严格布尔表达式，优先于 keywords（支持括号 + AND/OR）
+keyword_expression: "(open vocabulary segmentation OR vision-language grounding) AND (reinforcement learning OR MARL)"
 # [新增] 排除包含以下词汇的论文
 exclude_keywords:
   - "Large Language Model"
@@ -242,7 +248,7 @@ freshness:
   fallback_when_empty: false  # 当当天无新增时是否回退展示最近 top 若干
 ```
 
-> **搜索逻辑**：`categories` 内部按 OR 合并；`keywords` 内部按 OR 合并；二者之间由 `logic` 决定 AND/OR。比如 `logic: AND` 表示“**属于这些学科** 且 **匹配这些关键词**”。
+> **搜索逻辑**：默认 `categories` 内 OR、`keywords` 内 OR，再由 `logic` 连接。若配置 `keyword_expression`，会启用严格布尔解析（括号 + `AND/OR`），并优先覆盖 `keywords`。
 
 ---
 

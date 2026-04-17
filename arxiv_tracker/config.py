@@ -7,6 +7,7 @@ from typing import List
 class Settings:
     categories: List[str] = field(default_factory=list)
     keywords: List[str] = field(default_factory=list)
+    keyword_expression: str = ""
     exclude_keywords: List[str] = field(default_factory=list)
     logic: str = "AND"  # AND / OR
     max_results: int = 10
@@ -23,6 +24,7 @@ class Settings:
         self,
         categories=None,
         keywords=None,
+        keyword_expression=None,
         exclude_keywords=None,
         logic=None,
         max_results=None,
@@ -31,6 +33,7 @@ class Settings:
     ) -> "Settings":
         if categories: self.categories = list(categories)
         if keywords: self.keywords = list(keywords)
+        if keyword_expression is not None: self.keyword_expression = str(keyword_expression).strip()
         if exclude_keywords: self.exclude_keywords = list(exclude_keywords)
         if logic: self.logic = logic
         if max_results is not None: self.max_results = int(max_results)

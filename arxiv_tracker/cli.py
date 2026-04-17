@@ -1,14 +1,13 @@
 # -*- coding: utf-8 -*-
 import os, re, sys, traceback, time, pathlib, click
 from .config import Settings
-from .query import build_search_query
-from .client import fetch_arxiv_feed
-from .parser import parse_feed
 from .output import save_json, save_markdown
 from .summarizer import build_two_stage_summary
-from .llm import call_llm_translate
+from .llm import call_llm_translate, call_llm_deep_analysis, load_prompt_bundle
 from .email_template import render_email_html
 from .exporter import md_to_pdf
+from .sources import collect_items
+from .semantic import rerank_items_with_zotero
 
 # 进程级防重：本进程内只允许发送一次
 _SENT_EMAIL = False
@@ -80,6 +79,7 @@ def cli():
 @click.option("--config", "config_path", type=click.Path(exists=True), help="配置文件路径（YAML）")
 @click.option("--categories", multiple=True, help="学科分类，可多次或逗号分隔")
 @click.option("--keywords", multiple=True, help="关键词，可多次或逗号分隔")
+@click.option("--keyword-expression", default=None, help='严格布尔表达式，支持 AND/OR/()，如 "(A OR B) AND C"')
 @click.option("--exclude-keywords", multiple=True, help="排除关键词，可多次或逗号分隔") 
 @click.option("--logic", type=click.Choice(["AND", "OR"], case_sensitive=False), default=None)
 @click.option("--max-results", type=int, default=None)
@@ -100,7 +100,7 @@ def cli():
 @click.option("--site-url", default=None, help="站点首页 URL（用于邮件正文链接）")
 @click.option("--no-email", is_flag=True, help="跳过邮件发送（用于重试）")
 
-def run(config_path, categories, keywords, exclude_keywords, logic, max_results, sort_by, sort_order,
+def run(config_path, categories, keywords, keyword_expression, exclude_keywords, logic, max_results, sort_by, sort_order,
         lang, summary_mode, summary_scope, email_enabled, email_detail, email_max_items,
         out_dir, verbose, translate_enabled, translate_lang, pdf_enabled, no_email: bool,
         site_dir, site_url):
@@ -115,6 +115,7 @@ def run(config_path, categories, keywords, exclude_keywords, logic, max_results,
         ex_keys = _split_keywords(exclude_keywords)
         cfg.merge_cli(categories=cats or None,
                       keywords=keys or None,
+                      keyword_expression=keyword_expression,
                       exclude_keywords=ex_keys or None,
                       logic=(logic or cfg.logic),
                       max_results=(max_results or cfg.max_results),
@@ -130,6 +131,10 @@ def run(config_path, categories, keywords, exclude_keywords, logic, max_results,
         mode = summary_mode or summary_cfg.get("mode", "none")
         scope = summary_scope or summary_cfg.get("scope", "both")
 
+        analysis_cfg = (raw_cfg.get("analysis") or {}).copy()
+        analysis_enabled = bool(analysis_cfg.get("enabled", True))
+        analysis_top_n = int(analysis_cfg.get("top_n", 5))
+
         # 翻译
         trans_cfg = (raw_cfg.get("translate", {}) or {}).copy()
         if translate_enabled is not None:
@@ -138,6 +143,29 @@ def run(config_path, categories, keywords, exclude_keywords, logic, max_results,
             trans_cfg["lang"] = translate_lang
         if "fields" not in trans_cfg:
             trans_cfg["fields"] = ["title", "summary"]
+        trans_cfg.setdefault("failure_marker", "【翻译失败】该论文中文摘要暂不可用")
+
+        prompt_cfg = (llm_cfg.get("prompts") or {}).copy()
+        domain_context = str(prompt_cfg.get("domain_context") or "")
+
+        def _resolve_path(path_str: str) -> str:
+            if not path_str:
+                return ""
+            if os.path.isabs(path_str):
+                return path_str
+            base = os.path.dirname(config_path) if config_path else os.getcwd()
+            return os.path.normpath(os.path.join(base, path_str))
+
+        translate_prompt = load_prompt_bundle(
+            _resolve_path(str(prompt_cfg.get("translate_zh_path") or "")),
+            fallback_system=llm_cfg.get("system_prompt_translate_zh", ""),
+            fallback_user_template="",
+        )
+        deep_prompt = load_prompt_bundle(
+            _resolve_path(str(prompt_cfg.get("deep_analysis_path") or "")),
+            fallback_system=llm_cfg.get("system_prompt_deep_analysis", ""),
+            fallback_user_template="",
+        )
 
         # —— 邮件配置（合并 config + CLI 覆盖 + no-email）——
         email_cfg = (raw_cfg.get("email", {}) or {}).copy()
@@ -168,30 +196,21 @@ def run(config_path, categories, keywords, exclude_keywords, logic, max_results,
         if verbose:
             click.echo("[Run] categories: {}".format(cfg.categories))
             click.echo("[Run] keywords  : {}".format(cfg.keywords))
+            if cfg.keyword_expression:
+                click.echo("[Run] kw-expr   : {}".format(cfg.keyword_expression))
             click.echo("[Run] summary   : {}/{}".format(mode, scope))
+            click.echo("[Run] analysis  : enabled={}, top_n={}".format(analysis_enabled, analysis_top_n))
             click.echo("[Run] lang      : {}".format(lang))
             click.echo("[Run] translate : {} -> {}".format(trans_cfg.get("enabled", False),
                                                           trans_cfg.get("lang", "zh")))
+            click.echo("[Run] domain ctx: {}".format(domain_context or "<empty>"))
             click.echo("[Run] email     : enabled={}, detail={}, max_items={}".format(
                 email_cfg.get("enabled", False), email_cfg.get("detail"), email_cfg.get("max_items")
             ))
 
-        # 2) 查询（分页抓取直到攒够“未读新条目”或触达时间窗）
-        from datetime import datetime, timedelta, timezone
+        # 2) 多源检索 + 去重状态
         import json, pathlib
 
-        def _parse_dt(s: str):
-            if not s:
-                return None
-            s = s.replace("Z", "+00:00")
-            try:
-                return datetime.fromisoformat(s).astimezone(timezone.utc)
-            except Exception:
-                return None
-        q = build_search_query(cfg.categories, cfg.keywords, cfg.exclude_keywords, cfg.logic)
-        click.echo("[Query] {}".format(q))
-
-        # 读取已见集合（兼容 list / {"ids":[...]} / {id: timestamp} 三种格式）
         seen_ids = set()
         if unique_only and state_path:
             try:
@@ -207,62 +226,43 @@ def run(config_path, categories, keywords, exclude_keywords, logic, max_results,
             except Exception:
                 seen_ids = set()
 
-        cutoff = datetime.now(timezone.utc) - timedelta(days=since_days) if since_days > 0 else None
-        want_new = int(cfg.max_results or 50)
+        items, source_meta = collect_items(
+            cfg,
+            raw_cfg,
+            since_days=since_days,
+            unique_only=unique_only,
+            seen_ids=seen_ids,
+            fallback_when_empty=fallback_when_empty,
+        )
 
-        # 分页参数（可按需改成配置）
-        page_size = min(200, max(25, want_new))  # 25~200 较稳
-        max_pages = 20
-        start = 0
-        collected, reached_cutoff = [], False
+        q_arxiv = ((source_meta.get("queries") or {}).get("arxiv") or "").strip()
+        q_scholar = ((source_meta.get("queries") or {}).get("scholar") or "").strip()
+        if q_arxiv:
+            click.echo("[Query][arxiv] {}".format(q_arxiv))
+        if q_scholar:
+            click.echo("[Query][scholar] {}".format(q_scholar))
 
-        for _page in range(max_pages):
-            xml = fetch_arxiv_feed(
-                q, start=start, max_results=page_size,
-                sort_by=cfg.sort_by, sort_order=cfg.sort_order
-            )
-            page_items = parse_feed(xml) or []
-            if not page_items:
-                break
+        for warn in (source_meta.get("warnings") or []):
+            click.secho(f"[Source] {warn}", fg="yellow")
 
-            for it in page_items:
-                # 时间窗（按 updated 优先；无则退回 published）
-                t = _parse_dt(it.get("updated")) or _parse_dt(it.get("published"))
-                if cutoff and t and t < cutoff:
-                    reached_cutoff = True
-                    break
+        if verbose:
+            counts = source_meta.get("counts") or {}
+            click.echo("[Source] counts={}".format(counts))
 
-                # 去重
-                aid = it.get("id")
-                if unique_only and aid and aid in seen_ids:
-                    continue
-
-                collected.append(it)
-                if len(collected) >= want_new:
-                    break
-
-            if len(collected) >= want_new or reached_cutoff:
-                break
-
-            if len(page_items) < page_size:
-                # 已无更多可翻页内容
-                break
-
-            start += page_size
-
-        # Fallback：若空且允许回退，则给最新一页（不考虑去重/时间窗）
-        if not collected and fallback_when_empty:
-            xml = fetch_arxiv_feed(
-                q, start=0, max_results=want_new,
-                sort_by=cfg.sort_by, sort_order=cfg.sort_order
-            )
-            collected = parse_feed(xml) or []
-
-        items = collected
         if not items:
-            click.secho("[Info] No new items after pagination/freshness/dedup filter.", fg="yellow")
+            click.secho("[Info] No new items after multi-source/freshness/dedup filter.", fg="yellow")
         else:
-            click.echo(f"[Info] Fetched {len(items)} new item(s) after pagination/dedup.")
+            click.echo(f"[Info] Collected {len(items)} item(s) after merge/dedup.")
+
+        # 2.5) 可选：基于 Zotero 语义重排
+        semantic_cfg = (raw_cfg.get("semantic") or {})
+        semantic_scores = {}
+        if semantic_cfg.get("enabled", False) and items:
+            items, semantic_scores, semantic_warn = rerank_items_with_zotero(items, semantic_cfg)
+            if semantic_warn:
+                click.secho(f"[Semantic] {semantic_warn}", fg="yellow")
+            elif verbose:
+                click.echo("[Semantic] rerank applied on {} items".format(len(items)))
 
         # 先从已有文本/HTML提取；若仍没有再扫 PDF 头部兜底
         scrape_cfg = (raw_cfg.get("scrape") or {})
@@ -310,6 +310,13 @@ def run(config_path, categories, keywords, exclude_keywords, logic, max_results,
         if trans_cfg.get("enabled") and (trans_cfg.get("lang", "zh") == "zh"):
             api_key = (llm_cfg.get("api_key")
                        or os.getenv(llm_cfg.get("api_key_env") or "OPENAI_API_KEY", ""))
+            for it in items:
+                sid = it.get("id") or ""
+                if sid:
+                    translations[sid] = {
+                        "title_zh": "",
+                        "summary_zh": trans_cfg.get("failure_marker", "【翻译失败】该论文中文摘要暂不可用"),
+                    }
             if not api_key:
                 click.secho("[Translate] 跳过：未找到 LLM API Key（配置 llm.api_key 或设置环境变量 {}）"
                             .format(llm_cfg.get("api_key_env") or "OPENAI_API_KEY"), fg="yellow")
@@ -317,15 +324,60 @@ def run(config_path, categories, keywords, exclude_keywords, logic, max_results,
                 for it in items:
                     sid = it.get("id") or ""
                     try:
-                        translations[sid] = call_llm_translate(
+                        data = call_llm_translate(
                             item=it, target_lang="zh",
                             base_url=llm_cfg.get("base_url", ""),
                             model=llm_cfg.get("model", ""),
                             api_key=api_key,
-                            system_prompt=llm_cfg.get("system_prompt_translate_zh", "")
+                            system_prompt=translate_prompt.get("system", ""),
+                            user_template=translate_prompt.get("user_template", ""),
+                            template_vars={
+                                "domain_context": domain_context,
+                            },
                         )
+                        if data.get("title_zh"):
+                            translations[sid]["title_zh"] = data.get("title_zh")
+                        if data.get("summary_zh"):
+                            translations[sid]["summary_zh"] = data.get("summary_zh")
+                        if data.get("comments_zh"):
+                            translations[sid]["comments_zh"] = data.get("comments_zh")
                     except Exception as e:
                         click.secho(f"[Translate] 失败 {sid[:18]}...: {e}", fg="red")
+
+        # 4.5) Top-N 深度分析（固定结构化字段）
+        deep_analyses = {}
+        if analysis_enabled and items:
+            api_key = (llm_cfg.get("api_key")
+                       or os.getenv(llm_cfg.get("api_key_env") or "OPENAI_API_KEY", ""))
+            if not api_key:
+                click.secho("[Deep] 跳过：未找到 LLM API Key", fg="yellow")
+            else:
+                for rank, it in enumerate(items[:max(0, analysis_top_n)], 1):
+                    sid = it.get("id") or ""
+                    if not sid:
+                        continue
+                    try:
+                        deep_analyses[sid] = call_llm_deep_analysis(
+                            it,
+                            base_url=llm_cfg.get("base_url", ""),
+                            model=llm_cfg.get("model", ""),
+                            api_key=api_key,
+                            system_prompt=deep_prompt.get("system", ""),
+                            user_template=deep_prompt.get("user_template", ""),
+                            template_vars={
+                                "domain_context": domain_context,
+                                "rank": rank,
+                            },
+                        )
+                    except Exception as e:
+                        deep_analyses[sid] = {
+                            "method": "",
+                            "innovation": "",
+                            "results": "",
+                            "limitations": f"深析失败：{e}",
+                            "practical_value": "",
+                        }
+                        click.secho(f"[Deep] 失败 {sid[:18]}...: {e}", fg="yellow")
 
         # 5) 终端预览
         if not items:
@@ -333,10 +385,13 @@ def run(config_path, categories, keywords, exclude_keywords, logic, max_results,
         for idx, it in enumerate(items, 1):
             title = it.get("title", "")
             venue = it.get("venue_inferred") or (it.get("journal_ref") or "")
-            click.echo(f"{idx:02d}. {title}  [{' / '.join(it.get('authors', []))}]")
+            src = it.get("source") or "arxiv"
+            click.echo(f"{idx:02d}. [{src}] {title}  [{' / '.join(it.get('authors', []))}]")
             if venue:
                 click.echo(f"    Venue: {venue}")
             click.echo(f"    Time: {it.get('published', '—')}  ->  {it.get('updated', '—')}")
+            if it.get("semantic_score") is not None:
+                click.echo(f"    Semantic Score: {it.get('semantic_score'):.3f}")
             if it.get("pdf_url"):
                 click.echo(f"    PDF : {it['pdf_url']}")
             sid = it.get("id") or ""
@@ -346,11 +401,22 @@ def run(config_path, categories, keywords, exclude_keywords, logic, max_results,
             tx = translations.get(sid)
             if tx and tx.get("title_zh"):
                 click.echo(f"    标题(中): {tx['title_zh']}")
+            if sid in deep_analyses:
+                click.echo("    Deep : ready")
             click.echo("")
 
         # 6) 保存到文件 + 生成 PDF（可选）
         json_path = save_json(items, out_dir)
-        md_path   = save_markdown(items, out_dir, summaries_zh, summaries_en, lang=lang, translations=translations)
+        md_path   = save_markdown(
+            items,
+            out_dir,
+            summaries_zh,
+            summaries_en,
+            lang=lang,
+            translations=translations,
+            deep_analyses=deep_analyses,
+            analysis_top_n=analysis_top_n,
+        )
         click.echo(f"Saved: {json_path}")
         click.echo(f"Saved: {md_path}")
 
@@ -371,6 +437,8 @@ def run(config_path, categories, keywords, exclude_keywords, logic, max_results,
                     summaries_zh=summaries_zh or {},
                     summaries_en=summaries_en or {},
                     translations=translations or {},
+                    deep_analyses=deep_analyses or {},
+                    analysis_top_n=analysis_top_n,
                     site_dir=sd, site_title=title, keep_runs=keep,
                     theme=theme, accent=accent
                 )
@@ -459,6 +527,8 @@ def run(config_path, categories, keywords, exclude_keywords, logic, max_results,
                             html_body += render_email_html(
                                 items=items, lang=lang, translations=translations,
                                 summaries_zh=summaries_zh, summaries_en=summaries_en,
+                                deep_analyses=deep_analyses,
+                                analysis_top_n=analysis_top_n,
                                 detail=detail, max_items=max_items,
                                 title=subject.replace("[arXiv]", "arXiv")
                             )

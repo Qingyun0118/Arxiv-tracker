@@ -9,7 +9,13 @@ from .parser import parse_feed
 from .output import save_json, save_markdown
 
 def _job(cfg: Settings, out_dir: str):
-    q = build_search_query(cfg.categories, cfg.keywords, cfg.logic)
+    q = build_search_query(
+        categories=cfg.categories,
+        keywords=cfg.keywords,
+        exclude_keywords=cfg.exclude_keywords,
+        logic=cfg.logic,
+        keyword_expression=getattr(cfg, "keyword_expression", ""),
+    )
     print(f"[Scheduler] Running query: {q}")
     xml = fetch_arxiv_feed(q, start=0, max_results=cfg.max_results,
                            sort_by=cfg.sort_by, sort_order=cfg.sort_order)

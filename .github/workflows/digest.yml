@@ -11,9 +11,9 @@ on:
         type: choice
         options: ["false", "true"]
 
-  # 定时触发：每天 19:00 UTC = 北京时间次日 03:00
+  # 定时触发：每天 13:00 UTC = 北京时间 21:00
   schedule:
-    - cron: "0 19 * * *"
+    - cron: "0 13 * * *"
 
 concurrency:
   group: arxiv-digest
@@ -93,17 +93,23 @@ jobs:
           print("HAS_SMTP_PASS:", bool(os.getenv('SMTP_PASS')))
           PY
 
-      #  检查 LLM 相关环境变量是否已注入（只显示 SET/MISSING）
-      - name: Show LLM env (masked)
+      #  检查检索与 LLM 相关环境变量是否已注入（只显示 SET/MISSING）
+      - name: Show retrieval/LLM env (masked)
         env:
           OPENAI_COMPAT_API_KEY: ${{ secrets.OPENAI_COMPAT_API_KEY || vars.OPENAI_COMPAT_API_KEY }}
           DS_API_KEY:            ${{ secrets.DS_API_KEY            || vars.DS_API_KEY }}
+          SERPAPI_API_KEY:       ${{ secrets.SERPAPI_API_KEY       || vars.SERPAPI_API_KEY }}
+          ZOTERO_ID:             ${{ secrets.ZOTERO_ID             || vars.ZOTERO_ID }}
+          ZOTERO_KEY:            ${{ secrets.ZOTERO_KEY            || vars.ZOTERO_KEY }}
         run: |
           python - <<'PY'
           import os
           def flag(k): print(f"{k}: {'SET' if os.getenv(k) else 'MISSING'}")
           flag("OPENAI_COMPAT_API_KEY")
           flag("DS_API_KEY")
+          flag("SERPAPI_API_KEY")
+          flag("ZOTERO_ID")
+          flag("ZOTERO_KEY")
           PY
 
       - name: Who am I (for diagnostics)
@@ -115,6 +121,9 @@ jobs:
           # LLM（DeepSeek / OpenAI 兼容实现）
           OPENAI_COMPAT_API_KEY: ${{ secrets.OPENAI_COMPAT_API_KEY || vars.OPENAI_COMPAT_API_KEY }}
           DS_API_KEY:            ${{ secrets.DS_API_KEY            || vars.DS_API_KEY }}
+          SERPAPI_API_KEY:       ${{ secrets.SERPAPI_API_KEY       || vars.SERPAPI_API_KEY }}
+          ZOTERO_ID:             ${{ secrets.ZOTERO_ID             || vars.ZOTERO_ID }}
+          ZOTERO_KEY:            ${{ secrets.ZOTERO_KEY            || vars.ZOTERO_KEY }}
 
           # 邮件地址/用户名：优先 Secrets，若无回退 Variables
           EMAIL_TO:     ${{ secrets.EMAIL_TO     || vars.EMAIL_TO }}

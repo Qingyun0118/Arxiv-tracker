@@ -17,6 +17,7 @@
 ## 😮 Highlights
 
 - 🔎 **Multi-field, multi-topic search**: categories like `cs.CV / cs.LG / cs.AI / cs.CL`; free-form keywords; `logic: AND/OR` controls the relation between the *category-set* and the *keyword-set*
+- 🧩 **Strict boolean keyword expression**: supports `keyword_expression` with parentheses + `AND/OR` for fine-grained query control
 - 🧠 **Bilingual LLM summaries**: one English + one Chinese paragraph, or **two-stage** (TL;DR + Method Card + Discussion)
 - 🔗 **Auto links**: abstract / PDF / code repo / project page
 - 📨 **Email delivery**: QQ SMTP (465/SSL or 587/STARTTLS), multi-recipient
@@ -52,7 +53,7 @@ arxiv_tracker/        # Core logic (client, parser, summarizer, site, mailer)
 docs/                 # GitHub Pages output (auto-generated)
 outputs/              # Per-run JSON/MD (auto-generated)
 .state/               # Dedup state (seen.json, recommend committing it)
-.github/workflows/    # digest.yml (daily 03:00 Beijing time)
+.github/workflows/    # digest.yml (daily 21:00 Beijing time)
 config.yaml           # Search / summary / email / site / dedup config
 requirements.txt      # Dependencies
 ```
@@ -73,12 +74,15 @@ Click **Fork** on the top-right.
 
 - `OPENAI_COMPAT_API_KEY`: API key for any OpenAI-compatible provider (e.g., **DeepSeek**, **SiliconFlow**)
 - `SMTP_PASS`: QQ **SMTP App Password** (not your login password)
+- `SERPAPI_API_KEY`: Google Scholar API key (if `sources.scholar` is enabled)
+- `ZOTERO_KEY`: Zotero API key (if semantic reranking is enabled)
 
 **Variables**
 
 - `EMAIL_TO`: Recipients (comma/semicolon separated)
 - `EMAIL_SENDER`: Sender email (usually equals SMTP user)
 - `SMTP_USER`: SMTP username (usually the same as sender)
+- `ZOTERO_ID`: Zotero user ID (if semantic reranking is enabled)
 
 ### 3) Enable GitHub Pages
 
@@ -101,7 +105,7 @@ on:
         type: choice
         options: ["false", "true"]
   schedule:
-    - cron: "0 19 * * *"  # 19:00 UTC = 03:00 Beijing next day
+    - cron: "0 13 * * *"  # 13:00 UTC = 21:00 Beijing
 
 concurrency:
   group: arxiv-digest
@@ -178,6 +182,8 @@ categories: ["cs.CV", "cs.LG", "cs.AI"]
 keywords:
   - "open vocabulary segmentation"
   - "vision-language grounding"
+# [Optional] strict boolean expression, takes precedence over keywords
+keyword_expression: "(open vocabulary segmentation OR vision-language grounding) AND (reinforcement learning OR MARL)"
 # [New] Exclude papers containing these terms
 exclude_keywords:
   - "Large Language Model"
@@ -241,7 +247,7 @@ freshness:
   fallback_when_empty: false
 ```
 
-> **Query semantics**: within `categories` we OR; within `keywords` we OR; then join the two sets with `logic` (AND/OR). Example: `logic: AND` means *in these categories* **and** *match these keywords*.
+> **Query semantics**: by default, `categories` are OR-ed, `keywords` are OR-ed, then connected by `logic`. If `keyword_expression` is provided, strict boolean parsing (parentheses + `AND/OR`) is applied and takes precedence over `keywords`.
 
 ---
 

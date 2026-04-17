@@ -8,3 +8,4 @@ schedule>=1.2.2
 openai>=1.40.0
 markdown>=3.5.2
 xhtml2pdf>=0.2.11
+pyzotero>=1.5.18

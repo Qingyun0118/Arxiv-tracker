@@ -53,18 +53,20 @@ CSS = """
 def _render_card(it: Dict[str, Any],
                  t_zh: Optional[Dict[str, str]] = None,
                  sum_zh: Optional[Dict[str, str]] = None,
-                 sum_en: Optional[Dict[str, str]] = None) -> str:
+                 sum_en: Optional[Dict[str, str]] = None,
+                 deep: Optional[Dict[str, str]] = None) -> str:
     title = it.get("title") or ""
     title_link = it.get("html_url") or "#"
     authors = ", ".join(it.get("authors", []))
     venue = it.get("venue_inferred") or (it.get("journal_ref") or "")
     pub = it.get("published") or "—"
     upd = it.get("updated") or "—"
+    src = (it.get("source") or "arxiv").upper()
     comments = it.get("comments") or ""
     summary = it.get("summary") or ""
 
     zh_title = (t_zh or {}).get("title_zh")
-    zh_sum   = (t_zh or {}).get("summary_zh")
+    zh_sum   = (t_zh or {}).get("summary_zh") or "【翻译失败】该论文中文摘要暂不可用"
 
     # 新双语总结
     digest_en = (sum_en or {}).get("digest_en") or (sum_zh or {}).get("digest_en") or ""
@@ -72,6 +74,7 @@ def _render_card(it: Dict[str, Any],
 
     out = [f'<div class="card">']
     out.append(f'<div class="title"><a href="{_esc(title_link)}">{_esc(title)}</a></div>')
+    out.append(f'<div class="meta">Source: {_esc(src)}</div>')
     out.append(f'<div class="meta">Authors: {_esc(authors)}</div>')
     if venue: out.append(f'<div class="meta">Venue: {_esc(venue)}</div>')
     out.append(f'<div class="meta">First: {_esc(pub)} · Latest: {_esc(upd)}</div>')
@@ -83,11 +86,11 @@ def _render_card(it: Dict[str, Any],
     if summary:
         out.append('<div class="section"><h4>Abstract</h4><div style="white-space:pre-wrap">'
                    + _esc(summary) + '</div></div>')
-    if zh_title or zh_sum:
-        zh_parts = []
-        if zh_title: zh_parts.append(f"<p><b>标题：</b>{_esc(zh_title)}</p>")
-        if zh_sum:   zh_parts.append("<div style='white-space:pre-wrap'>"+_esc(zh_sum)+"</div>")
-        out.append('<div class="section"><h4>中文标题/摘要</h4>'+"".join(zh_parts)+'</div>')
+    zh_parts = []
+    if zh_title:
+        zh_parts.append(f"<p><b>标题：</b>{_esc(zh_title)}</p>")
+    zh_parts.append("<div style='white-space:pre-wrap'>" + _esc(zh_sum) + "</div>")
+    out.append('<div class="section"><h4>中文标题/摘要</h4>' + "".join(zh_parts) + '</div>')
 
     # ✅ 仅 Summary / 总结（英文→中文）
     if digest_en or digest_zh:
@@ -97,6 +100,22 @@ def _render_card(it: Dict[str, Any],
         if digest_zh:
             inner += "<div style='white-space:pre-wrap;margin-top:8px'>" + _esc(digest_zh) + "</div>"
         out.append('<div class="section"><h4>Summary / 总结</h4>'+ inner +'</div>')
+
+    if deep:
+        mapping = [
+            ("method", "方法"),
+            ("innovation", "创新点"),
+            ("results", "实验结果"),
+            ("limitations", "局限性"),
+            ("practical_value", "应用价值"),
+        ]
+        deep_lines = []
+        for key, label in mapping:
+            val = (deep.get(key) or "").strip()
+            if val:
+                deep_lines.append(f"<p><b>{_esc(label)}：</b>{_esc(val)}</p>")
+        if deep_lines:
+            out.append('<div class="section"><h4>Top-N 深度分析</h4>' + "".join(deep_lines) + '</div>')
 
     out.append('</div>')
     return "\n".join(out)
@@ -108,6 +127,8 @@ def render_email_html(
     translations: Optional[Dict[str, Dict[str, str]]] = None,
     summaries_zh: Optional[Dict[str, Dict[str, str]]] = None,
     summaries_en: Optional[Dict[str, Dict[str, str]]] = None,
+    deep_analyses: Optional[Dict[str, Dict[str, str]]] = None,
+    analysis_top_n: int = 0,
     detail: str = "full",
     max_items: int = 50,
     title: str = "arXiv Daily Digest",
@@ -115,6 +136,7 @@ def render_email_html(
     translations = translations or {}
     summaries_zh = summaries_zh or {}
     summaries_en = summaries_en or {}
+    deep_analyses = deep_analyses or {}
 
     head = f"""
     <meta charset="utf-8">
@@ -127,8 +149,9 @@ def render_email_html(
         return head + "<p>No results.</p></div>"
 
     body = [head]
-    for it in items[:max_items]:
+    for i, it in enumerate(items[:max_items], 1):
         sid = it.get("id") or ""
-        body.append(_render_card(it, translations.get(sid), summaries_zh.get(sid), summaries_en.get(sid)))
+        deep = deep_analyses.get(sid) if (analysis_top_n > 0 and i <= analysis_top_n) else None
+        body.append(_render_card(it, translations.get(sid), summaries_zh.get(sid), summaries_en.get(sid), deep=deep))
     body.append("</div>")
     return "\n".join(body)

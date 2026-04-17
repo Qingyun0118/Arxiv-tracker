@@ -1,6 +1,6 @@
 # arxiv_tracker/query.py
 import re
-from typing import List
+from typing import List, Optional, Tuple
 
 FIELDS = ("ti", "abs", "co")  # 标题/摘要/评论（会议常在 comments）
 
@@ -49,11 +49,136 @@ def _kw_group(kw: str) -> str:
 
     return "(" + " OR ".join(parts) + ")"
 
-def build_search_query(categories: List[str], keywords: List[str], exclude_keywords: List[str] = None, logic: str = "AND") -> str:    
+
+_BOOLEAN_TOKENS = re.compile(r"\(|\)|\bAND\b|\bOR\b", flags=re.IGNORECASE)
+
+
+def _tokenize_keyword_expression(expr: str) -> List[Tuple[str, str]]:
+    tokens: List[Tuple[str, str]] = []
+    pos = 0
+    for m in _BOOLEAN_TOKENS.finditer(expr or ""):
+        if m.start() > pos:
+            chunk = (expr[pos:m.start()] or "").strip()
+            if chunk:
+                tokens.append(("TERM", chunk))
+        token = m.group(0)
+        if token == "(":
+            tokens.append(("LPAREN", token))
+        elif token == ")":
+            tokens.append(("RPAREN", token))
+        else:
+            tokens.append((token.upper(), token.upper()))
+        pos = m.end()
+
+    tail = (expr[pos:] if expr else "").strip()
+    if tail:
+        tokens.append(("TERM", tail))
+    return tokens
+
+
+class _KeywordExprParser:
+    def __init__(self, tokens: List[Tuple[str, str]]):
+        self.tokens = tokens
+        self.idx = 0
+
+    def _peek(self) -> Optional[Tuple[str, str]]:
+        if self.idx >= len(self.tokens):
+            return None
+        return self.tokens[self.idx]
+
+    def _take(self) -> Optional[Tuple[str, str]]:
+        tok = self._peek()
+        if tok is not None:
+            self.idx += 1
+        return tok
+
+    def _accept(self, kind: str) -> bool:
+        tok = self._peek()
+        if tok and tok[0] == kind:
+            self.idx += 1
+            return True
+        return False
+
+    def parse(self):
+        if not self.tokens:
+            raise ValueError("keyword_expression is empty")
+        node = self._parse_or()
+        if self._peek() is not None:
+            raise ValueError(f"unexpected token: {self._peek()[1]}")
+        return node
+
+    def _parse_or(self):
+        node = self._parse_and()
+        while self._accept("OR"):
+            rhs = self._parse_and()
+            node = ("OR", node, rhs)
+        return node
+
+    def _parse_and(self):
+        node = self._parse_primary()
+        while self._accept("AND"):
+            rhs = self._parse_primary()
+            node = ("AND", node, rhs)
+        return node
+
+    def _parse_primary(self):
+        tok = self._peek()
+        if tok is None:
+            raise ValueError("unexpected end of expression")
+
+        if tok[0] == "LPAREN":
+            self._take()
+            inner = self._parse_or()
+            if not self._accept("RPAREN"):
+                raise ValueError("missing closing ')' in keyword_expression")
+            return inner
+
+        if tok[0] == "TERM":
+            self._take()
+            term = (tok[1] or "").strip()
+            if not term:
+                raise ValueError("empty term in keyword_expression")
+            return ("TERM", term)
+
+        raise ValueError(f"unexpected token: {tok[1]}")
+
+
+def _compile_keyword_ast(node) -> str:
+    kind = node[0]
+    if kind == "TERM":
+        return _kw_group(node[1])
+    if kind in ("AND", "OR"):
+        left = _compile_keyword_ast(node[1])
+        right = _compile_keyword_ast(node[2])
+        return f"({left} {kind} {right})"
+    raise ValueError(f"unsupported AST node: {kind}")
+
+
+def _build_keyword_query(keys: List[str], keyword_expression: str) -> str:
+    expr = (keyword_expression or "").strip()
+    if expr:
+        tokens = _tokenize_keyword_expression(expr)
+        parser = _KeywordExprParser(tokens)
+        ast = parser.parse()
+        return _compile_keyword_ast(ast)
+
+    if keys:
+        return "(" + " OR ".join(_kw_group(k) for k in keys) + ")"
+    return ""
+
+
+def build_search_query(
+    categories: List[str],
+    keywords: List[str],
+    exclude_keywords: List[str] = None,
+    logic: str = "AND",
+    keyword_expression: str = "",
+) -> str:
     """
     生成 arXiv API 的 search_query 字符串。
     - categories: ["cs.CV","cs.LG"] -> (cat:cs.CV OR cat:cs.LG)
     - keywords:   每个 kw 变成一个 _kw_group，关键词之间用 OR 连接
+    - keyword_expression: 严格布尔表达式（支持括号/AND/OR），优先于 keywords
     - 组间逻辑：cat_group (AND/OR) kw_group
     - 结构: (正面查询) AND NOT (负面查询)
     """
@@ -67,8 +192,7 @@ def build_search_query(categories: List[str], keywords: List[str], exclude_keywo
 
     if cats:
         cat_q = "(" + " OR ".join(f"cat:{c}" for c in cats) + ")"
-    if keys:
-        key_q = "(" + " OR ".join(_kw_group(k) for k in keys) + ")"
+    key_q = _build_keyword_query(keys, keyword_expression)
         
     if excs:
         # 复用 _kw_group 逻辑，也可以只做简单匹配。这里复用逻辑以支持变体。

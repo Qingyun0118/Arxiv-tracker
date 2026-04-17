@@ -129,17 +129,19 @@ def _join_links(it: Dict[str, Any]) -> str:
 def _card(it: Dict[str, Any],
           trans_zh: Optional[Dict[str,str]],
           sum_zh: Optional[Dict[str,str]],
-          sum_en: Optional[Dict[str,str]]) -> str:
+          sum_en: Optional[Dict[str,str]],
+          deep: Optional[Dict[str,str]] = None) -> str:
     t = it.get("title") or ""
     au = ", ".join(it.get("authors") or [])
     venue = it.get("venue_inferred") or (it.get("journal_ref") or "")
     pub = it.get("published") or "—"
     upd = it.get("updated") or "—"
+    src = (it.get("source") or "arxiv").upper()
     comm = it.get("comments") or ""
     absu = it.get("summary") or ""
 
     zh_title = (trans_zh or {}).get("title_zh")
-    zh_abs   = (trans_zh or {}).get("summary_zh")
+    zh_abs   = (trans_zh or {}).get("summary_zh") or "【翻译失败】该论文中文摘要暂不可用"
 
     # 新的双语总结（来自 summarizer）
     digest_en = (sum_en or {}).get("digest_en") or (sum_zh or {}).get("digest_en") or ""
@@ -148,6 +150,7 @@ def _card(it: Dict[str, Any],
     parts = [f'<div class="card">', f'<div class="title">{_esc(t)}</div>']
 
     # 元信息分行
+    parts.append(f'<div class="meta-line">Source: {_esc(src)}</div>')
     parts.append(f'<div class="meta-line">Authors: {_esc(au)}</div>')
     if venue:
         parts.append(f'<div class="meta-line">Venue: {_esc(venue)}</div>')
@@ -164,12 +167,12 @@ def _card(it: Dict[str, Any],
         parts.append('<details class="detail"><summary>Abstract</summary>')
         parts.append(f'<div class="mono">{_esc(absu)}</div></details>')
 
-    # 中文标题/摘要（可选）
-    if zh_abs or zh_title:
-        parts.append('<details class="detail"><summary>中文标题/摘要</summary>')
-        if zh_title: parts.append(f'<div class="mono"><b>标题：</b>{_esc(zh_title)}</div>')
-        if zh_abs:   parts.append(f'<div class="mono" style="margin-top:8px">{_esc(zh_abs)}</div>')
-        parts.append('</details>')
+    # 中文标题/摘要（必显，失败有标记）
+    parts.append('<details class="detail"><summary>中文标题/摘要</summary>')
+    if zh_title:
+        parts.append(f'<div class="mono"><b>标题：</b>{_esc(zh_title)}</div>')
+    parts.append(f'<div class="mono" style="margin-top:8px">{_esc(zh_abs)}</div>')
+    parts.append('</details>')
 
     # ✅ 只渲染双语总结（英文→中文），去掉 TL;DR & 方法卡
     if digest_en or digest_zh:
@@ -179,6 +182,24 @@ def _card(it: Dict[str, Any],
         if digest_zh:
             parts.append(f'<div class="mono" style="margin-top:8px">{_esc(digest_zh)}</div>')
         parts.append('</details>')
+
+    if deep:
+        mapping = [
+            ("method", "方法"),
+            ("innovation", "创新点"),
+            ("results", "实验结果"),
+            ("limitations", "局限性"),
+            ("practical_value", "应用价值"),
+        ]
+        deep_rows = []
+        for key, label in mapping:
+            val = (deep.get(key) or "").strip()
+            if val:
+                deep_rows.append(f'<div class="mono" style="margin-top:8px"><b>{_esc(label)}：</b>{_esc(val)}</div>')
+        if deep_rows:
+            parts.append('<details class="detail"><summary>Top-N 深度分析</summary>')
+            parts.extend(deep_rows)
+            parts.append('</details>')
 
     parts.append('</div>')
     return "\n".join(parts)
@@ -270,6 +291,8 @@ def generate_site(items: List[Dict[str,Any]],
                   summaries_en: Dict[str,Dict[str,str]],
                   translations: Dict[str,Dict[str,str]],
                   site_dir: str, site_title: str = "arXiv Results",
+                  deep_analyses: Optional[Dict[str,Dict[str,str]]] = None,
+                  analysis_top_n: int = 0,
                   keep_runs: int = 60,
                   theme: str = "light",
                   accent: Optional[str] = None) -> Dict[str,str]:
@@ -278,10 +301,12 @@ def generate_site(items: List[Dict[str,Any]],
     os.makedirs(archive_dir, exist_ok=True)
     open(os.path.join(site_dir, ".nojekyll"), "w").close()
 
+    deep_analyses = deep_analyses or {}
     cards = []
-    for it in items:
+    for i, it in enumerate(items, 1):
         sid = it.get("id") or ""
-        cards.append(_card(it, translations.get(sid), summaries_zh.get(sid), summaries_en.get(sid)))
+        deep = deep_analyses.get(sid) if (analysis_top_n > 0 and i <= analysis_top_n) else None
+        cards.append(_card(it, translations.get(sid), summaries_zh.get(sid), summaries_en.get(sid), deep=deep))
     cards_html = "\n".join(cards)
     hist_html = "\n".join(_history_list(archive_dir, keep_runs))
 

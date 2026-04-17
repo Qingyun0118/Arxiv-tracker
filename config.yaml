@@ -8,6 +8,10 @@ keywords:
   - "training-free"
   - "training free"
 
+# 可选：严格布尔表达式（支持括号 + AND/OR），设置后优先于 keywords
+# 例："(open vocabulary segmentation OR vision language grounding) AND (reinforcement learning OR MARL)"
+keyword_expression: ""
+
 # exclude_keywords: # 选择排除的关键词
 #   - "Large Language Model"
 #   - "LLM"
@@ -23,7 +27,7 @@ lang: "both"
 # —— 摘要设置 ——
 # mode: none / heuristic / llm
 summary:
-  mode: llm # mode: "heuristic"
+  mode: none # none / heuristic / llm
   # scope: tldr / full / both
   scope: "both"
 
@@ -37,7 +41,7 @@ email:
   tls: "ssl"  # auto / ssl / starttls
   debug: false     # true 可打印 SMTP 调试日志
   detail: "full"  # simple / full
-  max_items: 30
+  max_items: 15
   attach_md: true  # 是否开启Markdown附件
   attach_pdf: false  # 是否开启PDF附件
 
@@ -64,11 +68,23 @@ llm:
     包含研究动机、核心方法与关键实验结果。保持客观、术语准确；避免营销式表述。
     如有链接请保留，但不要在总结里重复链接。
 
+  # 提示词配置：从外部文件读取，避免写死在代码里
+  prompts:
+    domain_context: "Reinforcement learning for AUV/USV navigation, collision avoidance, and multi-agent coordination"
+    translate_zh_path: "prompts/translate_zh.yaml"
+    deep_analysis_path: "prompts/deep_analysis.yaml"
+
 # —— 中文翻译设置（用 LLM 翻译 title/summary） ——
 translate:
   enabled: true         # 是否启用
   lang: "zh"            # 目前只需中文；也可扩展 en/ja 等
   fields: ["title", "summary"]   # 可扩：["title","summary","comments"]
+  failure_marker: "【翻译失败】该论文中文摘要暂不可用"
+
+# —— Top-N 深度分析（邮件与网页） ——
+analysis:
+  enabled: true
+  top_n: 5
 
 site:
   enabled: true
@@ -83,6 +99,46 @@ freshness:
   unique_only: true       # 开启跨天去重（见过的 arXiv ID 不再重复发）
   state_path: ".state/seen.json"  # 去重状态文件（会随 docs 一起提交保存）
   fallback_when_empty: false # 当今天无新增时，是否回退展示最近的Top若干（建议false）
+
+# —— 多来源检索（Arxiv + Scholar） ——
+sources:
+  enabled: ["arxiv", "scholar"]
+  priority: ["arxiv", "scholar"]
+  max_candidates: 30
+
+  arxiv:
+    max_results: 30
+    page_size: 50
+    max_pages: 20
+
+  scholar:
+    enabled: true
+    endpoint: "https://serpapi.com/search.json"
+    api_key_env: "SERPAPI_API_KEY"
+    max_results: 20
+    page_size: 20
+    # query 为空时，会自动使用 keywords/categories 组装检索语句
+    query: ""
+    query_suffix: ""
+    timeframe:
+      mode: "last_2_years"   # this_year / last_2_years / custom
+      start_year: null
+      end_year: null
+
+# —— Zotero 语义重排（可选） ——
+semantic:
+  enabled: false
+  zotero:
+    user_id_env: "ZOTERO_ID"
+    api_key_env: "ZOTERO_KEY"
+    include_path: []
+    max_corpus: 300
+  embedding:
+    base_url: "https://api.siliconflow.cn"
+    api_key_env: "OPENAI_COMPAT_API_KEY"
+    model: "BAAI/bge-m3"
+    batch_size: 64
+    timeout: 45
 
 scrape:
   html: true               # 先用 HTML 页抓链接
