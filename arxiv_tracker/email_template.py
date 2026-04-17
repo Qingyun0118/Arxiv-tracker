@@ -38,6 +38,22 @@ def _join_links(it: Dict[str, Any]) -> str:
         parts.append(" · ".join(a))
     return " · ".join(parts)
 
+
+def _semantic_relevance_text(it: Dict[str, Any]) -> str:
+    raw = it.get("semantic_score")
+    try:
+        score = float(raw)
+    except (TypeError, ValueError):
+        return ""
+
+    if score >= 8:
+        level = "高"
+    elif score >= 6:
+        level = "中"
+    else:
+        level = "低"
+    return f"{level} ({score:.3f})"
+
 CSS = """
 .container{font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;color:#0f172a}
 .card{border:1px solid #e5e7eb;border-radius:14px;padding:14px;margin:12px 0;background:#fff}
@@ -75,6 +91,9 @@ def _render_card(it: Dict[str, Any],
     out = [f'<div class="card">']
     out.append(f'<div class="title"><a href="{_esc(title_link)}">{_esc(title)}</a></div>')
     out.append(f'<div class="meta">Source: {_esc(src)}</div>')
+    rel_text = _semantic_relevance_text(it)
+    if rel_text:
+        out.append(f'<div class="meta">语义相关性分数: {_esc(rel_text)}</div>')
     out.append(f'<div class="meta">Authors: {_esc(authors)}</div>')
     if venue: out.append(f'<div class="meta">Venue: {_esc(venue)}</div>')
     out.append(f'<div class="meta">First: {_esc(pub)} · Latest: {_esc(upd)}</div>')

@@ -50,6 +50,22 @@ def _render_lang_block(lang_label: str, it: Dict[str, Any],
         lines.append("")
     return lines
 
+
+def _semantic_relevance_text(it: Dict[str, Any]) -> str:
+    raw = it.get("semantic_score")
+    try:
+        score = float(raw)
+    except (TypeError, ValueError):
+        return ""
+
+    if score >= 8:
+        level = "高"
+    elif score >= 6:
+        level = "中"
+    else:
+        level = "低"
+    return f"{level} ({score:.3f})"
+
 def save_markdown(items: List[Dict[str, Any]], out_dir: str,
                   summaries_zh: Dict[str, Dict[str, str]] = None,
                   summaries_en: Dict[str, Dict[str, str]] = None,
@@ -77,6 +93,9 @@ def save_markdown(items: List[Dict[str, Any]], out_dir: str,
         if it.get("comments"):
             lines.append(f"- Comments：{it['comments']}")
         lines.append(f"- First：{pub or '—'}；Latest：{upd or '—'}")
+        rel_text = _semantic_relevance_text(it)
+        if rel_text:
+            lines.append(f"- 语义相关性分数：{rel_text}")
         if it.get("html_url"):
             lines.append(f"- Abs：{it['html_url']}")
         if it.get("pdf_url"):

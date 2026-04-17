@@ -95,7 +95,7 @@ translate:
 # —— Top-N 深度分析（邮件与网页） ——
 analysis:
   enabled: true
-  top_n: 5
+  top_n: 10
 
 site:
   enabled: true
@@ -115,7 +115,7 @@ freshness:
 sources:
   enabled: ["arxiv", "scholar"]
   priority: ["arxiv", "scholar"]
-  max_candidates: 30
+  max_candidates: 50
 
   arxiv:
     max_results: 30
@@ -124,10 +124,10 @@ sources:
 
   scholar:
     enabled: true
-    endpoint: "https://serpapi.com/search?engine=google"
+    endpoint: "https://serpapi.com/search.json"
     api_key_env: "SERPAPI_API_KEY"
-    max_results: 20
-    page_size: 20
+    max_results: 30
+    page_size: 50
     # query 为空时，会自动使用 keywords/categories 组装检索语句
     query: ""
     query_suffix: ""

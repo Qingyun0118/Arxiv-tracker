@@ -1,6 +1,7 @@
 import os
 import unittest
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from arxiv_tracker.sources import _merge_dedup_items, collect_items
 
@@ -75,6 +76,49 @@ class SourceCollectionTests(unittest.TestCase):
         self.assertEqual(items, [])
         self.assertTrue(meta.get("warnings"))
         self.assertIn("SERPAPI key is missing", meta["warnings"][0])
+
+    def test_collect_items_scholar_prefers_keyword_expression(self):
+        cfg = SimpleNamespace(
+            categories=["cs.RO"],
+            keywords=["robotics", "navigation"],
+            keyword_expression='"reinforcement learning" AND "collision avoidance"',
+            exclude_keywords=[],
+            logic="AND",
+            max_results=10,
+            sort_by="lastUpdatedDate",
+            sort_order="descending",
+        )
+
+        env_name = "ARXIV_TRACKER_TEST_SERPAPI_KEY"
+        raw_cfg = {
+            "sources": {
+                "enabled": ["scholar"],
+                "priority": ["scholar"],
+                "max_candidates": 10,
+                "scholar": {
+                    "enabled": True,
+                    "api_key_env": env_name,
+                    "query": "",
+                    "max_results": 0,
+                },
+            }
+        }
+
+        with patch.dict(os.environ, {env_name: "dummy-key"}, clear=False):
+            items, meta = collect_items(
+                cfg,
+                raw_cfg,
+                since_days=0,
+                unique_only=False,
+                seen_ids=set(),
+                fallback_when_empty=False,
+            )
+
+        self.assertEqual(items, [])
+        self.assertEqual(
+            meta.get("queries", {}).get("scholar"),
+            '"reinforcement learning" AND "collision avoidance"',
+        )
 
 
 if __name__ == "__main__":

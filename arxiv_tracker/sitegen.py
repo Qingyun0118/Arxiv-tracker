@@ -126,6 +126,22 @@ def _join_links(it: Dict[str, Any]) -> str:
         for i,u in enumerate(it["project_urls"][:2]): parts.append(f'<a href="{_esc(u)}">Project{i+1}</a>')
     return " · ".join(parts)
 
+
+def _semantic_relevance_text(it: Dict[str, Any]) -> str:
+    raw = it.get("semantic_score")
+    try:
+        score = float(raw)
+    except (TypeError, ValueError):
+        return ""
+
+    if score >= 8:
+        level = "高"
+    elif score >= 6:
+        level = "中"
+    else:
+        level = "低"
+    return f"{level} ({score:.3f})"
+
 def _card(it: Dict[str, Any],
           trans_zh: Optional[Dict[str,str]],
           sum_zh: Optional[Dict[str,str]],
@@ -151,6 +167,9 @@ def _card(it: Dict[str, Any],
 
     # 元信息分行
     parts.append(f'<div class="meta-line">Source: {_esc(src)}</div>')
+    rel_text = _semantic_relevance_text(it)
+    if rel_text:
+        parts.append(f'<div class="meta-line">语义相关性分数: {_esc(rel_text)}</div>')
     parts.append(f'<div class="meta-line">Authors: {_esc(au)}</div>')
     if venue:
         parts.append(f'<div class="meta-line">Venue: {_esc(venue)}</div>')

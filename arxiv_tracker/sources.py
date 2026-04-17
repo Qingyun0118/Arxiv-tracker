@@ -71,10 +71,19 @@ def _sort_key(item: Dict[str, Any]) -> Tuple[datetime, int]:
     return dt, _meta_score(item)
 
 
-def _build_scholar_query(categories: List[str], keywords: List[str], scholar_cfg: Dict[str, Any]) -> str:
+def _build_scholar_query(
+    categories: List[str],
+    keywords: List[str],
+    scholar_cfg: Dict[str, Any],
+    keyword_expression: str = "",
+) -> str:
     query = (scholar_cfg.get("query") or "").strip()
     if query:
         return query
+
+    expr = (keyword_expression or "").strip()
+    if expr:
+        return expr
 
     kw = [k.strip() for k in (keywords or []) if k and k.strip()]
     parts: List[str] = []
@@ -248,6 +257,7 @@ def _fetch_arxiv_items(
 def _fetch_scholar_items(
     categories: List[str],
     keywords: List[str],
+    keyword_expression: str,
     *,
     scholar_cfg: Dict[str, Any],
     cutoff: Optional[datetime],
@@ -259,7 +269,7 @@ def _fetch_scholar_items(
     if not api_key:
         return [], "", "SERPAPI key is missing (set sources.scholar.api_key or env SERPAPI_API_KEY)."
 
-    query = _build_scholar_query(categories, keywords, scholar_cfg)
+    query = _build_scholar_query(categories, keywords, scholar_cfg, keyword_expression)
     start_year, end_year = _resolve_year_window(scholar_cfg)
 
     max_results = int(scholar_cfg.get("max_results", 20))
@@ -392,6 +402,7 @@ def collect_items(
             scholar_items, scholar_query, err = _fetch_scholar_items(
                 cfg.categories,
                 cfg.keywords,
+                getattr(cfg, "keyword_expression", ""),
                 scholar_cfg=scholar_cfg,
                 cutoff=cutoff,
                 unique_only=unique_only,
