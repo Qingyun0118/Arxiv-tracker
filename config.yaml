@@ -1,4 +1,8 @@
 categories: ["cs.CV", "cs.LG", "cs.AI"]
+
+# 可选：从环境变量注入分类（优先级：CLI > 环境变量 > 配置）
+categories_env: "TRACKER_CATEGORIES"
+
 keywords:
   - "open vocabulary"
   - "open-vocabulary"

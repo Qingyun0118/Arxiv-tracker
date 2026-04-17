@@ -90,6 +90,7 @@ requirements.txt      # 运行依赖
 
 **Variables（非敏感，建议用于检索调参）**
 
+- `TRACKER_CATEGORIES`：arXiv 领域分类（逗号/分号/斜杠/换行分隔，例如 `cs.CV,cs.LG,cs.AI`）
 - `TRACKER_KEYWORDS`：关键词列表（逗号/分号/换行分隔）
 - `TRACKER_KEYWORD_EXPRESSION`：严格布尔表达式（支持括号 + `AND/OR`，优先于 `TRACKER_KEYWORDS`）
 
@@ -148,6 +149,7 @@ jobs:
 
       - name: Run tracker (schedule-only email unless forced)
         env:
+          TRACKER_CATEGORIES: ${{ vars.TRACKER_CATEGORIES }}
           TRACKER_KEYWORDS: ${{ vars.TRACKER_KEYWORDS }}
           TRACKER_KEYWORD_EXPRESSION: ${{ vars.TRACKER_KEYWORD_EXPRESSION }}
           OPENAI_COMPAT_BASE_URL: ${{ secrets.OPENAI_COMPAT_BASE_URL }}
@@ -204,6 +206,8 @@ jobs:
 ```yaml
 # === 检索 ===
 categories: ["cs.CV", "cs.LG", "cs.AI"]
+# [可选] 通过环境变量注入分类（优先级：CLI > 环境变量 > 配置）
+categories_env: "TRACKER_CATEGORIES"
 keywords:
   - "open vocabulary segmentation"
   - "vision-language grounding"
@@ -316,6 +320,7 @@ python -m pip install --upgrade pip
 pip install -r requirements.txt
 
 export OPENAI_COMPAT_API_KEY="你的密钥"
+export TRACKER_CATEGORIES="cs.CV,cs.LG,cs.AI"
 export TRACKER_KEYWORDS="open vocabulary segmentation,vision-language grounding"
 # 若设置表达式，将优先于 TRACKER_KEYWORDS
 export TRACKER_KEYWORD_EXPRESSION="(open vocabulary segmentation OR vision-language grounding) AND reinforcement learning"
@@ -345,6 +350,7 @@ python -m pip install --upgrade pip
 pip install -r requirements.txt
 
 $Env:OPENAI_COMPAT_API_KEY = "你的密钥"
+$Env:TRACKER_CATEGORIES = "cs.CV,cs.LG,cs.AI"
 $Env:TRACKER_KEYWORDS = "open vocabulary segmentation,vision-language grounding"
 # 若设置表达式，将优先于 TRACKER_KEYWORDS
 $Env:TRACKER_KEYWORD_EXPRESSION = "(open vocabulary segmentation OR vision-language grounding) AND reinforcement learning"

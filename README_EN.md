@@ -91,6 +91,7 @@ Click **Fork** on the top-right.
 
 **Variables (non-sensitive, recommended for query tuning)**
 
+- `TRACKER_CATEGORIES`: arXiv category list (comma/semicolon/slash/newline separated, e.g. `cs.CV,cs.LG,cs.AI`)
 - `TRACKER_KEYWORDS`: keyword list (comma/semicolon/newline separated)
 - `TRACKER_KEYWORD_EXPRESSION`: strict boolean expression (parentheses + `AND/OR`, takes precedence over `TRACKER_KEYWORDS`)
 
@@ -149,6 +150,7 @@ jobs:
 
       - name: Run tracker (schedule-only email unless forced)
         env:
+          TRACKER_CATEGORIES: ${{ vars.TRACKER_CATEGORIES }}
           TRACKER_KEYWORDS: ${{ vars.TRACKER_KEYWORDS }}
           TRACKER_KEYWORD_EXPRESSION: ${{ vars.TRACKER_KEYWORD_EXPRESSION }}
           OPENAI_COMPAT_BASE_URL: ${{ secrets.OPENAI_COMPAT_BASE_URL }}
@@ -203,6 +205,8 @@ jobs:
 ```yaml
 # === Search ===
 categories: ["cs.CV", "cs.LG", "cs.AI"]
+# [Optional] inject categories from environment (priority: CLI > env > config)
+categories_env: "TRACKER_CATEGORIES"
 keywords:
   - "open vocabulary segmentation"
   - "vision-language grounding"
@@ -315,6 +319,7 @@ python -m pip install --upgrade pip
 pip install -r requirements.txt
 
 export OPENAI_COMPAT_API_KEY="your_api_key"
+export TRACKER_CATEGORIES="cs.CV,cs.LG,cs.AI"
 export TRACKER_KEYWORDS="open vocabulary segmentation,vision-language grounding"
 # If set, expression takes precedence over TRACKER_KEYWORDS
 export TRACKER_KEYWORD_EXPRESSION="(open vocabulary segmentation OR vision-language grounding) AND reinforcement learning"
@@ -344,6 +349,7 @@ python -m pip install --upgrade pip
 pip install -r requirements.txt
 
 $Env:OPENAI_COMPAT_API_KEY = "your_api_key"
+$Env:TRACKER_CATEGORIES = "cs.CV,cs.LG,cs.AI"
 $Env:TRACKER_KEYWORDS = "open vocabulary segmentation,vision-language grounding"
 # If set, expression takes precedence over TRACKER_KEYWORDS
 $Env:TRACKER_KEYWORD_EXPRESSION = "(open vocabulary segmentation OR vision-language grounding) AND reinforcement learning"

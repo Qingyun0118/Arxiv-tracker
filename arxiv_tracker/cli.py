@@ -18,7 +18,7 @@ def _split_categories(values):
     for v in values or []:
         if not v:
             continue
-        parts = re.split(r'\s*,\s*|\s*;\s*|/', v.strip())
+        parts = re.split(r'\s*,\s*|\s*;\s*|/|\s*\n+\s*', v.strip())
         out.extend([p for p in parts if p])
     return out
 
@@ -31,6 +31,23 @@ def _split_keywords(values):
         parts = re.split(r'\s*,\s*|\s*;\s*|\s*\n+\s*', v.strip())
         out.extend([p for p in parts if p])
     return out
+
+
+def _resolve_category_inputs(raw_cfg, cli_categories):
+    """Resolve category inputs with precedence: CLI > env > config."""
+    categories_env_name = str(raw_cfg.get("categories_env") or "").strip()
+
+    env_categories = []
+    if categories_env_name:
+        env_categories = _split_categories([os.getenv(categories_env_name, "")])
+
+    merged_categories = cli_categories or env_categories
+
+    return {
+        "categories": merged_categories,
+        "categories_env_name": categories_env_name,
+        "used_env_categories": bool(env_categories) and not bool(cli_categories),
+    }
 
 
 def _resolve_keyword_inputs(raw_cfg, cli_keywords, cli_keyword_expression):
@@ -169,9 +186,10 @@ def run(config_path, categories, keywords, keyword_expression, exclude_keywords,
         cli_keys = _split_keywords(keywords)
         ex_keys = _split_keywords(exclude_keywords)
 
+        cat_inputs = _resolve_category_inputs(raw_cfg, cats)
         kw_inputs = _resolve_keyword_inputs(raw_cfg, cli_keys, keyword_expression)
 
-        cfg.merge_cli(categories=cats or None,
+        cfg.merge_cli(categories=cat_inputs["categories"] or None,
                       keywords=kw_inputs["keywords"] or None,
                       keyword_expression=kw_inputs["keyword_expression"],
                       exclude_keywords=ex_keys or None,
@@ -251,6 +269,8 @@ def run(config_path, categories, keywords, keyword_expression, exclude_keywords,
                        .format(since_days, unique_only, state_path, fallback_when_empty))
 
         if verbose:
+            if cat_inputs["used_env_categories"]:
+                click.echo("[Run] categories from env {}".format(cat_inputs["categories_env_name"]))
             click.echo("[Run] categories: {}".format(cfg.categories))
             if kw_inputs["used_env_keywords"]:
                 click.echo("[Run] keywords from env {}".format(kw_inputs["keywords_env_name"]))
