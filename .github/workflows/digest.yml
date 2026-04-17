@@ -96,6 +96,8 @@ jobs:
       #  检查检索与 LLM 相关环境变量是否已注入（只显示 SET/MISSING）
       - name: Show retrieval/LLM env (masked)
         env:
+          TRACKER_KEYWORDS: ${{ vars.TRACKER_KEYWORDS }}
+          TRACKER_KEYWORD_EXPRESSION: ${{ vars.TRACKER_KEYWORD_EXPRESSION }}
           OPENAI_COMPAT_BASE_URL: ${{ secrets.OPENAI_COMPAT_BASE_URL }}
           OPENAI_COMPAT_MODEL:    ${{ secrets.OPENAI_COMPAT_MODEL }}
           OPENAI_COMPAT_API_KEY: ${{ secrets.OPENAI_COMPAT_API_KEY }}
@@ -110,6 +112,8 @@ jobs:
           python - <<'PY'
           import os
           def flag(k): print(f"{k}: {'SET' if os.getenv(k) else 'MISSING'}")
+          flag("TRACKER_KEYWORDS")
+          flag("TRACKER_KEYWORD_EXPRESSION")
           flag("OPENAI_COMPAT_BASE_URL")
           flag("OPENAI_COMPAT_MODEL")
           flag("OPENAI_COMPAT_API_KEY")
@@ -128,6 +132,10 @@ jobs:
 
       - name: Run tracker & generate site (schedule-only email unless forced)
         env:
+          # 查询条件（建议放在 Variables，便于随时调参）
+          TRACKER_KEYWORDS: ${{ vars.TRACKER_KEYWORDS }}
+          TRACKER_KEYWORD_EXPRESSION: ${{ vars.TRACKER_KEYWORD_EXPRESSION }}
+
           # LLM（DeepSeek / OpenAI 兼容实现）
           OPENAI_COMPAT_BASE_URL: ${{ secrets.OPENAI_COMPAT_BASE_URL }}
           OPENAI_COMPAT_MODEL:    ${{ secrets.OPENAI_COMPAT_MODEL }}

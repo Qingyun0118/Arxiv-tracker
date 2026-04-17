@@ -28,9 +28,37 @@ def _split_keywords(values):
     for v in values or []:
         if not v:
             continue
-        parts = re.split(r'\s*,\s*|\s*;\s*', v.strip())
+        parts = re.split(r'\s*,\s*|\s*;\s*|\s*\n+\s*', v.strip())
         out.extend([p for p in parts if p])
     return out
+
+
+def _resolve_keyword_inputs(raw_cfg, cli_keywords, cli_keyword_expression):
+    """Resolve keyword inputs with precedence: CLI > env > config."""
+    keywords_env_name = str(raw_cfg.get("keywords_env") or "").strip()
+    expr_env_name = str(raw_cfg.get("keyword_expression_env") or "").strip()
+
+    env_keywords = []
+    if keywords_env_name:
+        env_keywords = _split_keywords([os.getenv(keywords_env_name, "")])
+
+    env_expr = ""
+    if expr_env_name:
+        env_expr = os.getenv(expr_env_name, "").strip()
+
+    merged_keywords = cli_keywords or env_keywords
+    merged_expr = cli_keyword_expression
+    if merged_expr is None:
+        merged_expr = env_expr or None
+
+    return {
+        "keywords": merged_keywords,
+        "keyword_expression": merged_expr,
+        "keywords_env_name": keywords_env_name,
+        "expr_env_name": expr_env_name,
+        "used_env_keywords": bool(env_keywords) and not bool(cli_keywords),
+        "used_env_expr": bool(env_expr) and cli_keyword_expression is None,
+    }
 
 
 def _load_raw_cfg(maybe_path):
@@ -135,19 +163,23 @@ def run(config_path, categories, keywords, keyword_expression, exclude_keywords,
 
         # 1) 载入设置
         cfg = Settings.from_file(config_path) if config_path else Settings()
+        raw_cfg = _load_raw_cfg(config_path)
+
         cats = _split_categories(categories)
-        keys = _split_keywords(keywords)
+        cli_keys = _split_keywords(keywords)
         ex_keys = _split_keywords(exclude_keywords)
+
+        kw_inputs = _resolve_keyword_inputs(raw_cfg, cli_keys, keyword_expression)
+
         cfg.merge_cli(categories=cats or None,
-                      keywords=keys or None,
-                      keyword_expression=keyword_expression,
+                      keywords=kw_inputs["keywords"] or None,
+                      keyword_expression=kw_inputs["keyword_expression"],
                       exclude_keywords=ex_keys or None,
                       logic=(logic or cfg.logic),
                       max_results=(max_results or cfg.max_results),
                       sort_by=(sort_by or cfg.sort_by),
                       sort_order=(sort_order or cfg.sort_order))
 
-        raw_cfg = _load_raw_cfg(config_path)
         lang = lang or raw_cfg.get("lang", "both")
 
         # 摘要
@@ -220,7 +252,11 @@ def run(config_path, categories, keywords, keyword_expression, exclude_keywords,
 
         if verbose:
             click.echo("[Run] categories: {}".format(cfg.categories))
+            if kw_inputs["used_env_keywords"]:
+                click.echo("[Run] keywords from env {}".format(kw_inputs["keywords_env_name"]))
             click.echo("[Run] keywords  : {}".format(cfg.keywords))
+            if kw_inputs["used_env_expr"]:
+                click.echo("[Run] kw-expr from env {}".format(kw_inputs["expr_env_name"]))
             if cfg.keyword_expression:
                 click.echo("[Run] kw-expr   : {}".format(cfg.keyword_expression))
             click.echo("[Run] summary   : {}/{}".format(mode, scope))

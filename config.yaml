@@ -12,6 +12,10 @@ keywords:
 # 例："(open vocabulary segmentation OR vision language grounding) AND (reinforcement learning OR MARL)"
 keyword_expression: ""
 
+# 可选：从环境变量注入关键词/表达式（优先级：CLI > 环境变量 > 配置）
+keywords_env: "TRACKER_KEYWORDS"
+keyword_expression_env: "TRACKER_KEYWORD_EXPRESSION"
+
 # exclude_keywords: # 选择排除的关键词
 #   - "Large Language Model"
 #   - "LLM"
@@ -137,7 +141,7 @@ semantic:
     require_include_path: true
     # 建议指定与你研究方向一致的集合路径，支持 glob（避免全库噪声）
     include_path:
-      - "2026/rl-auv/**"
+      - "Paper/USV/**"
     max_corpus: 300
   embedding:
     # 推荐通过 Secrets 注入，避免写死在配置中

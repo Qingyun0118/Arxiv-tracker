@@ -66,11 +66,12 @@ requirements.txt      # Dependencies
 
 Click **Fork** on the top-right.
 
-### 2) Configure Secrets (Recommended: secrets-only)
+### 2) Configure Secrets and Variables
 
 > Settings → **Secrets and variables** → **Actions**
 
-> To reduce privacy leakage risk, put all runtime parameters in **Secrets** instead of **Variables**.
+> To reduce privacy leakage risk, keep email/API keys/account data in **Secrets**.
+> Put non-sensitive query knobs (keywords/expression) in **Variables** for easier tuning.
 
 **Secrets**
 
@@ -87,6 +88,11 @@ Click **Fork** on the top-right.
 - `SERPAPI_API_KEY`: Google Scholar API key (if `sources.scholar` is enabled)
 - `ZOTERO_ID`: Zotero user ID (if semantic reranking is enabled)
 - `ZOTERO_KEY`: Zotero API key (if semantic reranking is enabled)
+
+**Variables (non-sensitive, recommended for query tuning)**
+
+- `TRACKER_KEYWORDS`: keyword list (comma/semicolon/newline separated)
+- `TRACKER_KEYWORD_EXPRESSION`: strict boolean expression (parentheses + `AND/OR`, takes precedence over `TRACKER_KEYWORDS`)
 
 > When semantic reranking is enabled, set `semantic.zotero.include_path` in `config.yaml` to limit corpus scope.
 
@@ -143,6 +149,8 @@ jobs:
 
       - name: Run tracker (schedule-only email unless forced)
         env:
+          TRACKER_KEYWORDS: ${{ vars.TRACKER_KEYWORDS }}
+          TRACKER_KEYWORD_EXPRESSION: ${{ vars.TRACKER_KEYWORD_EXPRESSION }}
           OPENAI_COMPAT_BASE_URL: ${{ secrets.OPENAI_COMPAT_BASE_URL }}
           OPENAI_COMPAT_MODEL:    ${{ secrets.OPENAI_COMPAT_MODEL }}
           OPENAI_COMPAT_API_KEY: ${{ secrets.OPENAI_COMPAT_API_KEY }}
@@ -200,6 +208,9 @@ keywords:
   - "vision-language grounding"
 # [Optional] strict boolean expression, takes precedence over keywords
 keyword_expression: "(open vocabulary segmentation OR vision-language grounding) AND (reinforcement learning OR MARL)"
+# [Optional] inject keywords from environment (priority: CLI > env > config)
+keywords_env: "TRACKER_KEYWORDS"
+keyword_expression_env: "TRACKER_KEYWORD_EXPRESSION"
 # [New] Exclude papers containing these terms
 exclude_keywords:
   - "Large Language Model"
@@ -304,6 +315,9 @@ python -m pip install --upgrade pip
 pip install -r requirements.txt
 
 export OPENAI_COMPAT_API_KEY="your_api_key"
+export TRACKER_KEYWORDS="open vocabulary segmentation,vision-language grounding"
+# If set, expression takes precedence over TRACKER_KEYWORDS
+export TRACKER_KEYWORD_EXPRESSION="(open vocabulary segmentation OR vision-language grounding) AND reinforcement learning"
 export OPENAI_COMPAT_BASE_URL="https://api.siliconflow.cn"
 export OPENAI_COMPAT_MODEL="Qwen/Qwen2.5-7B-Instruct"
 # Required only when semantic.enabled=true
@@ -330,6 +344,9 @@ python -m pip install --upgrade pip
 pip install -r requirements.txt
 
 $Env:OPENAI_COMPAT_API_KEY = "your_api_key"
+$Env:TRACKER_KEYWORDS = "open vocabulary segmentation,vision-language grounding"
+# If set, expression takes precedence over TRACKER_KEYWORDS
+$Env:TRACKER_KEYWORD_EXPRESSION = "(open vocabulary segmentation OR vision-language grounding) AND reinforcement learning"
 $Env:OPENAI_COMPAT_BASE_URL = "https://api.siliconflow.cn"
 $Env:OPENAI_COMPAT_MODEL = "Qwen/Qwen2.5-7B-Instruct"
 # Required only when semantic.enabled=true
