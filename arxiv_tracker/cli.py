@@ -599,6 +599,12 @@ def run(config_path, categories, keywords, keyword_expression, exclude_keywords,
                     if not (to_list and sender and passwd):
                         click.secho("[Email] 配置不完整，跳过发送（需要 EMAIL_TO / EMAIL_SENDER / SMTP_PASS）", fg="yellow")
                     else:
+                        site_cfg_for_email = (raw_cfg.get("site") or {}) if 'raw_cfg' in locals() else {}
+                        layout_title = str(
+                            email_cfg.get("layout_title")
+                            or site_cfg_for_email.get("title")
+                            or subject.replace("[arXiv]", "arXiv")
+                        ).strip()
                         html_body = ""
                         if page_url:
                             html_body += f'<div style="margin-bottom:10px">Web 版：<a href="{page_url}">{page_url}</a></div>'
@@ -611,7 +617,7 @@ def run(config_path, categories, keywords, keyword_expression, exclude_keywords,
                                 deep_analyses=deep_analyses,
                                 analysis_top_n=analysis_top_n,
                                 detail=detail, max_items=max_items,
-                                title=subject.replace("[arXiv]", "arXiv")
+                                title=layout_title
                             )
                         from .mailer import send_email
                         attach = []

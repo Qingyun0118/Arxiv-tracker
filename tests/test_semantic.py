@@ -86,6 +86,73 @@ class SemanticRerankTests(unittest.TestCase):
         self.assertGreaterEqual(ranked[0]["semantic_score"], ranked[1]["semantic_score"])
         self.assertEqual(ranked[0]["id"], "id-1")
 
+    def test_rerank_prefers_recency_with_default_weights(self):
+        items = [
+            {
+                "id": "id-old",
+                "title": "Old",
+                "summary": "alpha",
+                "updated": "2024-01-01T00:00:00+00:00",
+            },
+            {
+                "id": "id-new",
+                "title": "New",
+                "summary": "beta",
+                "updated": "2026-01-01T00:00:00+00:00",
+            },
+        ]
+
+        with patch("arxiv_tracker.semantic._read_zotero_corpus", return_value=["c1"]), patch(
+            "arxiv_tracker.semantic._embed_texts",
+            side_effect=[
+                [[1.0, 0.0], [0.0, 1.0]],
+                [[1.0, 0.0]],
+            ],
+        ):
+            ranked, scores, warning = rerank_items_with_zotero(items, {"enabled": True, "embedding": {}})
+
+        self.assertIsNone(warning)
+        self.assertEqual(len(scores), 2)
+        self.assertEqual(ranked[0]["id"], "id-new")
+        self.assertIn("freshness_score", ranked[0])
+        self.assertIn("rank_score", ranked[0])
+
+    def test_rerank_prefers_semantic_when_semantic_weight_higher(self):
+        items = [
+            {
+                "id": "id-old",
+                "title": "Old",
+                "summary": "alpha",
+                "updated": "2024-01-01T00:00:00+00:00",
+            },
+            {
+                "id": "id-new",
+                "title": "New",
+                "summary": "beta",
+                "updated": "2026-01-01T00:00:00+00:00",
+            },
+        ]
+
+        with patch("arxiv_tracker.semantic._read_zotero_corpus", return_value=["c1"]), patch(
+            "arxiv_tracker.semantic._embed_texts",
+            side_effect=[
+                [[1.0, 0.0], [0.0, 1.0]],
+                [[1.0, 0.0]],
+            ],
+        ):
+            ranked, scores, warning = rerank_items_with_zotero(
+                items,
+                {
+                    "enabled": True,
+                    "embedding": {},
+                    "ranking": {"time_weight": 0.2, "semantic_weight": 0.8},
+                },
+            )
+
+        self.assertIsNone(warning)
+        self.assertEqual(len(scores), 2)
+        self.assertEqual(ranked[0]["id"], "id-old")
+
 
 if __name__ == "__main__":
     unittest.main()

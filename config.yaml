@@ -43,6 +43,7 @@ summary:
 email:
   enabled: true
   subject: "[arXiv] Daily Digest"
+  layout_title: ""  # 可选：邮件正文标题；为空时自动使用 site.title
   smtp_server: "smtp.qq.com"
   smtp_port: 465
   smtp_pass_env: "SMTP_PASS"
@@ -136,9 +137,26 @@ sources:
       start_year: null
       end_year: null
 
+    # Scholar 摘要补全（仅针对摘要过短/疑似截断项）
+    abstract_enrichment:
+      enabled: true
+      min_chars: 260
+      max_enrich_items: 20
+      timeout: 8
+      max_workers: 4
+      providers: ["arxiv", "crossref", "openalex", "semantic_scholar", "landing_page"]
+      cache_path: ".state/scholar_abstract_cache.json"
+      cache_ttl_days: 30
+      semantic_scholar_api_key_env: "S2_API_KEY"
+
 # —— Zotero 语义重排（可选） ——
 semantic:
   enabled: true
+  ranking:
+    # 最终排序分数 = time_weight * freshness_score + semantic_weight * semantic_score
+    # freshness_score 与 semantic_score 均归一到 0~10
+    time_weight: 0.6
+    semantic_weight: 0.4
   zotero:
     user_id_env: "ZOTERO_ID"
     api_key_env: "ZOTERO_KEY"

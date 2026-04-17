@@ -224,6 +224,28 @@ max_results: 100             # per-page cap; the runner auto-paginates internall
 sort_by: "lastUpdatedDate"   # or submittedDate
 sort_order: "descending"
 
+# === Multi-source retrieval (arXiv + Scholar) ===
+sources:
+  enabled: ["arxiv", "scholar"]
+  priority: ["arxiv", "scholar"]
+  max_candidates: 50
+  scholar:
+    enabled: true
+    endpoint: "https://serpapi.com/search.json"
+    api_key_env: "SERPAPI_API_KEY"
+    max_results: 30
+    page_size: 20
+    abstract_enrichment:
+      enabled: true
+      min_chars: 260
+      max_enrich_items: 20
+      timeout: 8
+      max_workers: 4
+      providers: ["arxiv", "crossref", "openalex", "semantic_scholar", "landing_page"]
+      cache_path: ".state/scholar_abstract_cache.json"
+      cache_ttl_days: 30
+      semantic_scholar_api_key_env: "S2_API_KEY"
+
 # === Output language ===
 lang: "both"                 # zh / en / both
 

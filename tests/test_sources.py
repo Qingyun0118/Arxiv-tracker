@@ -1,9 +1,10 @@
 import os
+import tempfile
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from arxiv_tracker.sources import _merge_dedup_items, collect_items
+from arxiv_tracker.sources import _enrich_scholar_abstracts, _merge_dedup_items, collect_items
 
 
 class SourceCollectionTests(unittest.TestCase):
@@ -119,6 +120,151 @@ class SourceCollectionTests(unittest.TestCase):
             meta.get("queries", {}).get("scholar"),
             '"reinforcement learning" AND "collision avoidance"',
         )
+
+    def test_scholar_abstract_enrichment_replaces_short_snippet(self):
+        items = [
+            {
+                "id": "scholar:1",
+                "source": "scholar",
+                "title": "Paper A",
+                "summary": "short snippet",
+                "doi": "10.1000/test-doi",
+            }
+        ]
+        long_abs = (
+            "This work studies safe marine navigation with reinforcement learning under realistic disturbances. "
+            "Extensive experiments on multiple benchmarks show robust gains in collision avoidance and route efficiency."
+        )
+        cfg = {
+            "abstract_enrichment": {
+                "enabled": True,
+                "providers": ["crossref"],
+                "min_chars": 120,
+                "max_enrich_items": 20,
+                "max_workers": 1,
+                "cache_path": "",
+            }
+        }
+
+        with patch("arxiv_tracker.sources._provider_crossref", return_value=long_abs):
+            stats, warnings = _enrich_scholar_abstracts(items, cfg)
+
+        self.assertEqual(stats["checked"], 1)
+        self.assertEqual(stats["attempted"], 1)
+        self.assertEqual(stats["enriched"], 1)
+        self.assertEqual(items[0]["summary"], long_abs)
+        self.assertTrue(items[0]["summary_enriched"])
+        self.assertEqual(items[0]["summary_source"], "crossref")
+        self.assertGreater(items[0]["summary_chars"], 120)
+        self.assertTrue(any("Scholar abstract enrichment" in w for w in warnings))
+
+    def test_scholar_abstract_enrichment_fallback_to_next_provider(self):
+        items = [
+            {
+                "id": "scholar:2",
+                "source": "scholar",
+                "title": "Paper B",
+                "summary": "short snippet",
+            }
+        ]
+        long_abs = (
+            "A two-stage control framework is introduced for underwater robots in cluttered environments. "
+            "Comparative evaluations report higher success rates and smoother trajectories."
+        )
+        cfg = {
+            "abstract_enrichment": {
+                "enabled": True,
+                "providers": ["crossref", "landing_page"],
+                "min_chars": 120,
+                "max_workers": 1,
+                "cache_path": "",
+            }
+        }
+
+        with patch("arxiv_tracker.sources._provider_crossref", return_value=None), patch(
+            "arxiv_tracker.sources._provider_landing_page", return_value=long_abs
+        ):
+            stats, _ = _enrich_scholar_abstracts(items, cfg)
+
+        self.assertEqual(stats["enriched"], 1)
+        self.assertEqual(items[0]["summary_source"], "landing_page")
+
+    def test_scholar_abstract_enrichment_uses_cache(self):
+        long_abs = (
+            "This paper proposes an adaptive planner for USV navigation with uncertainty-aware policy updates. "
+            "Results demonstrate improved safety margins and lower path deviation across challenging scenarios."
+        )
+
+        with tempfile.TemporaryDirectory() as td:
+            cache_path = os.path.join(td, "scholar_abstract_cache.json")
+            cfg = {
+                "abstract_enrichment": {
+                    "enabled": True,
+                    "providers": ["crossref"],
+                    "min_chars": 120,
+                    "max_workers": 1,
+                    "cache_path": cache_path,
+                }
+            }
+
+            first_items = [
+                {
+                    "id": "scholar:3",
+                    "source": "scholar",
+                    "title": "Paper C",
+                    "summary": "short snippet",
+                    "doi": "10.1000/cache-doi",
+                }
+            ]
+            with patch("arxiv_tracker.sources._provider_crossref", return_value=long_abs):
+                first_stats, _ = _enrich_scholar_abstracts(first_items, cfg)
+            self.assertEqual(first_stats["enriched"], 1)
+
+            second_items = [
+                {
+                    "id": "scholar:4",
+                    "source": "scholar",
+                    "title": "Paper C",
+                    "summary": "short snippet",
+                    "doi": "10.1000/cache-doi",
+                }
+            ]
+            with patch("arxiv_tracker.sources._provider_crossref", side_effect=AssertionError("should not call provider")):
+                second_stats, _ = _enrich_scholar_abstracts(second_items, cfg)
+
+            self.assertEqual(second_stats["cache_hits"], 1)
+            self.assertTrue(second_items[0]["summary_source"].startswith("cache:"))
+            self.assertEqual(second_items[0]["summary"], long_abs)
+
+    def test_scholar_abstract_enrichment_skips_when_summary_is_complete(self):
+        summary = (
+            "A complete abstract with enough details on motivation, method and outcomes in real-world conditions. "
+            "The evaluation includes ablations and comparisons against strong baselines to support the claims."
+        )
+        items = [
+            {
+                "id": "scholar:5",
+                "source": "scholar",
+                "title": "Paper D",
+                "summary": summary,
+            }
+        ]
+        cfg = {
+            "abstract_enrichment": {
+                "enabled": True,
+                "providers": ["crossref"],
+                "min_chars": 120,
+                "max_workers": 1,
+                "cache_path": "",
+            }
+        }
+
+        with patch("arxiv_tracker.sources._provider_crossref", side_effect=AssertionError("should not be called")):
+            stats, _ = _enrich_scholar_abstracts(items, cfg)
+
+        self.assertEqual(stats["checked"], 1)
+        self.assertEqual(stats["attempted"], 0)
+        self.assertEqual(stats["enriched"], 0)
 
 
 if __name__ == "__main__":

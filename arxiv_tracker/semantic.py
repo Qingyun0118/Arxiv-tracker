@@ -4,7 +4,7 @@ from __future__ import annotations
 import fnmatch
 import math
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 import requests
@@ -97,6 +97,61 @@ def _safe_date(value: str) -> datetime:
         return datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ")
     except Exception:
         return datetime(1970, 1, 1)
+
+
+def _parse_item_datetime(item: Dict[str, Any]) -> datetime:
+    for key in ("updated", "published"):
+        raw = str(item.get(key) or "").strip()
+        if not raw:
+            continue
+        try:
+            dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt
+        except Exception:
+            continue
+    return datetime(1970, 1, 1, tzinfo=timezone.utc)
+
+
+def _compute_freshness_scores(items: List[Dict[str, Any]]) -> List[float]:
+    if not items:
+        return []
+
+    stamps = [_parse_item_datetime(it).timestamp() for it in items]
+    lo = min(stamps)
+    hi = max(stamps)
+
+    if hi - lo <= 1e-12:
+        return [10.0 for _ in items]
+
+    scores: List[float] = []
+    for ts in stamps:
+        # Normalize by recency: latest=10, oldest=0.
+        scores.append(((ts - lo) / (hi - lo)) * 10.0)
+    return scores
+
+
+def _resolve_rank_weights(semantic_cfg: Dict[str, Any]) -> Tuple[float, float]:
+    ranking_cfg = (semantic_cfg or {}).get("ranking") or {}
+
+    try:
+        time_weight = float(ranking_cfg.get("time_weight", 0.6))
+    except Exception:
+        time_weight = 0.6
+
+    try:
+        semantic_weight = float(ranking_cfg.get("semantic_weight", 0.4))
+    except Exception:
+        semantic_weight = 0.4
+
+    time_weight = max(0.0, time_weight)
+    semantic_weight = max(0.0, semantic_weight)
+
+    total = time_weight + semantic_weight
+    if total <= 1e-12:
+        return 0.6, 0.4
+    return time_weight / total, semantic_weight / total
 
 
 def _normalize_include_patterns(value: Any) -> List[str]:
@@ -205,7 +260,24 @@ def rerank_items_with_zotero(
                 scores[sid] = score
             item["semantic_score"] = score
 
-        sorted_items = sorted(items, key=lambda x: x.get("semantic_score", 0.0), reverse=True)
+        freshness_scores = _compute_freshness_scores(items)
+        time_weight, semantic_weight = _resolve_rank_weights(semantic_cfg)
+
+        for item, freshness_score in zip(items, freshness_scores):
+            semantic_score = float(item.get("semantic_score") or 0.0)
+            rank_score = (time_weight * freshness_score) + (semantic_weight * semantic_score)
+            item["freshness_score"] = freshness_score
+            item["rank_score"] = rank_score
+
+        sorted_items = sorted(
+            items,
+            key=lambda x: (
+                x.get("rank_score", 0.0),
+                x.get("freshness_score", 0.0),
+                x.get("semantic_score", 0.0),
+            ),
+            reverse=True,
+        )
         return sorted_items, scores, None
     except Exception as e:
         return items, {}, f"semantic rerank skipped: {e}"
