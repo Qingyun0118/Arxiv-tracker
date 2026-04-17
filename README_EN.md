@@ -66,23 +66,29 @@ requirements.txt      # Dependencies
 
 Click **Fork** on the top-right.
 
-### 2) Configure Secrets & Variables
+### 2) Configure Secrets (Recommended: secrets-only)
 
 > Settings → **Secrets and variables** → **Actions**
+
+> To reduce privacy leakage risk, put all runtime parameters in **Secrets** instead of **Variables**.
 
 **Secrets**
 
 - `OPENAI_COMPAT_API_KEY`: API key for any OpenAI-compatible provider (e.g., **DeepSeek**, **SiliconFlow**)
-- `SMTP_PASS`: QQ **SMTP App Password** (not your login password)
-- `SERPAPI_API_KEY`: Google Scholar API key (if `sources.scholar` is enabled)
-- `ZOTERO_KEY`: Zotero API key (if semantic reranking is enabled)
-
-**Variables**
-
+- `OPENAI_COMPAT_BASE_URL`: LLM service base URL (e.g., `https://api.deepseek.com` or `https://api.siliconflow.cn`)
+- `OPENAI_COMPAT_MODEL`: LLM model name (e.g., `deepseek-chat`, `Qwen/Qwen2.5-7B-Instruct`)
+- `SEMANTIC_EMBED_BASE_URL`: Base URL of embedding service for semantic reranking (used when `semantic.enabled=true`)
+- `SEMANTIC_EMBED_MODEL`: Embedding model name for semantic reranking (used when `semantic.enabled=true`)
+- `SEMANTIC_EMBED_API_KEY`: Embedding API key for semantic reranking (used when `semantic.enabled=true`)
 - `EMAIL_TO`: Recipients (comma/semicolon separated)
 - `EMAIL_SENDER`: Sender email (usually equals SMTP user)
 - `SMTP_USER`: SMTP username (usually the same as sender)
+- `SMTP_PASS`: QQ **SMTP App Password** (not your login password)
+- `SERPAPI_API_KEY`: Google Scholar API key (if `sources.scholar` is enabled)
 - `ZOTERO_ID`: Zotero user ID (if semantic reranking is enabled)
+- `ZOTERO_KEY`: Zotero API key (if semantic reranking is enabled)
+
+> When semantic reranking is enabled, set `semantic.zotero.include_path` in `config.yaml` to limit corpus scope.
 
 ### 3) Enable GitHub Pages
 
@@ -101,7 +107,7 @@ on:
       send_email:
         description: "Send email for manual run?"
         required: false
-        default: "false"
+        default: "true"
         type: choice
         options: ["false", "true"]
   schedule:
@@ -137,10 +143,20 @@ jobs:
 
       - name: Run tracker (schedule-only email unless forced)
         env:
+          OPENAI_COMPAT_BASE_URL: ${{ secrets.OPENAI_COMPAT_BASE_URL }}
+          OPENAI_COMPAT_MODEL:    ${{ secrets.OPENAI_COMPAT_MODEL }}
           OPENAI_COMPAT_API_KEY: ${{ secrets.OPENAI_COMPAT_API_KEY }}
-          EMAIL_TO:     ${{ secrets.EMAIL_TO   || vars.EMAIL_TO }}
-          EMAIL_SENDER: ${{ secrets.EMAIL_SENDER || vars.EMAIL_SENDER }}
-          SMTP_USER:    ${{ secrets.SMTP_USER  || vars.SMTP_USER }}
+          # Required when semantic.enabled=true
+          SEMANTIC_EMBED_BASE_URL: ${{ secrets.SEMANTIC_EMBED_BASE_URL }}
+          SEMANTIC_EMBED_MODEL:    ${{ secrets.SEMANTIC_EMBED_MODEL }}
+          SEMANTIC_EMBED_API_KEY:  ${{ secrets.SEMANTIC_EMBED_API_KEY }}
+          # Optional, depending on enabled features
+          SERPAPI_API_KEY: ${{ secrets.SERPAPI_API_KEY }}
+          ZOTERO_ID:       ${{ secrets.ZOTERO_ID }}
+          ZOTERO_KEY:      ${{ secrets.ZOTERO_KEY }}
+          EMAIL_TO:     ${{ secrets.EMAIL_TO }}
+          EMAIL_SENDER: ${{ secrets.EMAIL_SENDER }}
+          SMTP_USER:    ${{ secrets.SMTP_USER }}
           SMTP_PASS:    ${{ secrets.SMTP_PASS }}
         run: |
           set -e
@@ -203,8 +219,14 @@ summary:
 
 # === LLM (OpenAI-Compatible: DeepSeek / SiliconFlow) ===
 llm:
-  base_url: "https://api.deepseek.com"     # or "https://api.siliconflow.cn"
-  model: "deepseek-chat"                   # e.g., "Qwen/Qwen3-8B" for SiliconFlow
+  # Recommended: inject via environment variables (avoid hardcoding in repo)
+  base_url: ""
+  model: ""
+  base_url_env: "OPENAI_COMPAT_BASE_URL"
+  model_env: "OPENAI_COMPAT_MODEL"
+  # For local-only tests, you can still hardcode:
+  # base_url: "https://api.deepseek.com"
+  # model: "deepseek-chat"
   api_key_env: "OPENAI_COMPAT_API_KEY"
   system_prompt_en: |
     You are a senior paper-reading assistant...
@@ -245,9 +267,32 @@ freshness:
   unique_only: true
   state_path: ".state/seen.json"
   fallback_when_empty: false
+
+# === Zotero semantic reranking (scope-limited to reduce noise) ===
+semantic:
+  enabled: true
+  zotero:
+    user_id_env: "ZOTERO_ID"
+    api_key_env: "ZOTERO_KEY"
+    require_include_path: true
+    include_path:
+      - "2026/rl-auv/**"
+      - "2026/multi-agent/**"
+    max_corpus: 300
+  embedding:
+    # Base URL / model / api key are injected from Secrets env vars
+    base_url: ""
+    model: ""
+    base_url_env: "SEMANTIC_EMBED_BASE_URL"
+    model_env: "SEMANTIC_EMBED_MODEL"
+    api_key_env: "SEMANTIC_EMBED_API_KEY"
+    batch_size: 64
+    timeout: 45
 ```
 
 > **Query semantics**: by default, `categories` are OR-ed, `keywords` are OR-ed, then connected by `logic`. If `keyword_expression` is provided, strict boolean parsing (parentheses + `AND/OR`) is applied and takes precedence over `keywords`.
+>
+> **Semantic rerank behavior**: when `semantic.enabled=true` and `require_include_path=true`, an empty `include_path` will skip reranking with a warning in logs.
 
 ---
 
@@ -259,7 +304,16 @@ python -m pip install --upgrade pip
 pip install -r requirements.txt
 
 export OPENAI_COMPAT_API_KEY="your_api_key"
-# base_url/model are in config.yaml
+export OPENAI_COMPAT_BASE_URL="https://api.siliconflow.cn"
+export OPENAI_COMPAT_MODEL="Qwen/Qwen2.5-7B-Instruct"
+# Required only when semantic.enabled=true
+export SEMANTIC_EMBED_BASE_URL="https://api.siliconflow.cn"
+export SEMANTIC_EMBED_MODEL="BAAI/bge-m3"
+export SEMANTIC_EMBED_API_KEY="your_embedding_api_key"
+# Optional, depending on enabled features
+export SERPAPI_API_KEY="your_serpapi_key"
+export ZOTERO_ID="your_zotero_user_id"
+export ZOTERO_KEY="your_zotero_api_key"
 export EMAIL_TO="your@qq.com"
 export EMAIL_SENDER="your@qq.com"
 export SMTP_USER="your@qq.com"
@@ -276,6 +330,16 @@ python -m pip install --upgrade pip
 pip install -r requirements.txt
 
 $Env:OPENAI_COMPAT_API_KEY = "your_api_key"
+$Env:OPENAI_COMPAT_BASE_URL = "https://api.siliconflow.cn"
+$Env:OPENAI_COMPAT_MODEL = "Qwen/Qwen2.5-7B-Instruct"
+# Required only when semantic.enabled=true
+$Env:SEMANTIC_EMBED_BASE_URL = "https://api.siliconflow.cn"
+$Env:SEMANTIC_EMBED_MODEL = "BAAI/bge-m3"
+$Env:SEMANTIC_EMBED_API_KEY = "your_embedding_api_key"
+# Optional, depending on enabled features
+$Env:SERPAPI_API_KEY = "your_serpapi_key"
+$Env:ZOTERO_ID = "your_zotero_user_id"
+$Env:ZOTERO_KEY = "your_zotero_api_key"
 $Env:EMAIL_TO     = "your@qq.com"
 $Env:EMAIL_SENDER = "your@qq.com"
 $Env:SMTP_USER    = "your@qq.com"

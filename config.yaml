@@ -48,13 +48,16 @@ email:
 # —— LLM（DeepSeek/OpenAI 兼容） ——
 llm:
   provider: "openai-compatible"     # 兼容 OpenAI SDK 的服务
-  # 硅基流动的版本
-  base_url: "https://api.siliconflow.cn"
-  model: "Qwen/Qwen2.5-7B-Instruct"
+  # 推荐通过 Actions Secrets 注入，避免写死在仓库中
+  # 读取优先级：环境变量 > base_url/model 字段
+  base_url: ""
+  model: ""
+  base_url_env: "OPENAI_COMPAT_BASE_URL"
+  model_env: "OPENAI_COMPAT_MODEL"
   api_key_env: "OPENAI_COMPAT_API_KEY"
-  # Deepseek的版本
-  # base_url: "https://api.deepseek.com"
-  # model: "deepseek-chat"
+  # DeepSeek 示例（二选一）：
+  # base_url_env: "DEEPSEEK_BASE_URL"
+  # model_env: "DEEPSEEK_MODEL"
   # api_key_env: "DS_API_KEY"
   
 
@@ -131,12 +134,18 @@ semantic:
   zotero:
     user_id_env: "ZOTERO_ID"
     api_key_env: "ZOTERO_KEY"
-    include_path: []
+    require_include_path: true
+    # 建议指定与你研究方向一致的集合路径，支持 glob（避免全库噪声）
+    include_path:
+      - "2026/rl-auv/**"
     max_corpus: 300
   embedding:
-    base_url: "https://api.siliconflow.cn"
-    api_key_env: "OPENAI_COMPAT_API_KEY"
-    model: "BAAI/bge-m3"
+    # 推荐通过 Secrets 注入，避免写死在配置中
+    base_url: ""
+    model: ""
+    base_url_env: "SEMANTIC_EMBED_BASE_URL"
+    model_env: "SEMANTIC_EMBED_MODEL"
+    api_key_env: "SEMANTIC_EMBED_API_KEY"
     batch_size: 64
     timeout: 45
 

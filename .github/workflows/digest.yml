@@ -75,9 +75,9 @@ jobs:
       # 一次性检查邮箱变量注入是否OK
       - name: Show email env (masked)
         env:
-          EMAIL_TO: ${{ secrets.EMAIL_TO || vars.EMAIL_TO }}
-          EMAIL_SENDER: ${{ secrets.EMAIL_SENDER || vars.EMAIL_SENDER }}
-          SMTP_USER: ${{ secrets.SMTP_USER || vars.SMTP_USER }}
+          EMAIL_TO: ${{ secrets.EMAIL_TO }}
+          EMAIL_SENDER: ${{ secrets.EMAIL_SENDER }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
           SMTP_PASS: ${{ secrets.SMTP_PASS }}
         run: |
           python - <<'PY'
@@ -96,16 +96,26 @@ jobs:
       #  检查检索与 LLM 相关环境变量是否已注入（只显示 SET/MISSING）
       - name: Show retrieval/LLM env (masked)
         env:
-          OPENAI_COMPAT_API_KEY: ${{ secrets.OPENAI_COMPAT_API_KEY || vars.OPENAI_COMPAT_API_KEY }}
-          DS_API_KEY:            ${{ secrets.DS_API_KEY            || vars.DS_API_KEY }}
-          SERPAPI_API_KEY:       ${{ secrets.SERPAPI_API_KEY       || vars.SERPAPI_API_KEY }}
-          ZOTERO_ID:             ${{ secrets.ZOTERO_ID             || vars.ZOTERO_ID }}
-          ZOTERO_KEY:            ${{ secrets.ZOTERO_KEY            || vars.ZOTERO_KEY }}
+          OPENAI_COMPAT_BASE_URL: ${{ secrets.OPENAI_COMPAT_BASE_URL }}
+          OPENAI_COMPAT_MODEL:    ${{ secrets.OPENAI_COMPAT_MODEL }}
+          OPENAI_COMPAT_API_KEY: ${{ secrets.OPENAI_COMPAT_API_KEY }}
+          SEMANTIC_EMBED_BASE_URL: ${{ secrets.SEMANTIC_EMBED_BASE_URL }}
+          SEMANTIC_EMBED_MODEL:    ${{ secrets.SEMANTIC_EMBED_MODEL }}
+          SEMANTIC_EMBED_API_KEY:  ${{ secrets.SEMANTIC_EMBED_API_KEY }}
+          DS_API_KEY:            ${{ secrets.DS_API_KEY }}
+          SERPAPI_API_KEY:       ${{ secrets.SERPAPI_API_KEY }}
+          ZOTERO_ID:             ${{ secrets.ZOTERO_ID }}
+          ZOTERO_KEY:            ${{ secrets.ZOTERO_KEY }}
         run: |
           python - <<'PY'
           import os
           def flag(k): print(f"{k}: {'SET' if os.getenv(k) else 'MISSING'}")
+          flag("OPENAI_COMPAT_BASE_URL")
+          flag("OPENAI_COMPAT_MODEL")
           flag("OPENAI_COMPAT_API_KEY")
+          flag("SEMANTIC_EMBED_BASE_URL")
+          flag("SEMANTIC_EMBED_MODEL")
+          flag("SEMANTIC_EMBED_API_KEY")
           flag("DS_API_KEY")
           flag("SERPAPI_API_KEY")
           flag("ZOTERO_ID")
@@ -119,16 +129,21 @@ jobs:
       - name: Run tracker & generate site (schedule-only email unless forced)
         env:
           # LLM（DeepSeek / OpenAI 兼容实现）
-          OPENAI_COMPAT_API_KEY: ${{ secrets.OPENAI_COMPAT_API_KEY || vars.OPENAI_COMPAT_API_KEY }}
-          DS_API_KEY:            ${{ secrets.DS_API_KEY            || vars.DS_API_KEY }}
-          SERPAPI_API_KEY:       ${{ secrets.SERPAPI_API_KEY       || vars.SERPAPI_API_KEY }}
-          ZOTERO_ID:             ${{ secrets.ZOTERO_ID             || vars.ZOTERO_ID }}
-          ZOTERO_KEY:            ${{ secrets.ZOTERO_KEY            || vars.ZOTERO_KEY }}
+          OPENAI_COMPAT_BASE_URL: ${{ secrets.OPENAI_COMPAT_BASE_URL }}
+          OPENAI_COMPAT_MODEL:    ${{ secrets.OPENAI_COMPAT_MODEL }}
+          OPENAI_COMPAT_API_KEY: ${{ secrets.OPENAI_COMPAT_API_KEY }}
+          SEMANTIC_EMBED_BASE_URL: ${{ secrets.SEMANTIC_EMBED_BASE_URL }}
+          SEMANTIC_EMBED_MODEL:    ${{ secrets.SEMANTIC_EMBED_MODEL }}
+          SEMANTIC_EMBED_API_KEY:  ${{ secrets.SEMANTIC_EMBED_API_KEY }}
+          DS_API_KEY:            ${{ secrets.DS_API_KEY }}
+          SERPAPI_API_KEY:       ${{ secrets.SERPAPI_API_KEY }}
+          ZOTERO_ID:             ${{ secrets.ZOTERO_ID }}
+          ZOTERO_KEY:            ${{ secrets.ZOTERO_KEY }}
 
-          # 邮件地址/用户名：优先 Secrets，若无回退 Variables
-          EMAIL_TO:     ${{ secrets.EMAIL_TO     || vars.EMAIL_TO }}
-          EMAIL_SENDER: ${{ secrets.EMAIL_SENDER || vars.EMAIL_SENDER }}
-          SMTP_USER:    ${{ secrets.SMTP_USER    || vars.SMTP_USER }}
+          # 邮件地址/用户名：统一使用 Secrets
+          EMAIL_TO:     ${{ secrets.EMAIL_TO }}
+          EMAIL_SENDER: ${{ secrets.EMAIL_SENDER }}
+          SMTP_USER:    ${{ secrets.SMTP_USER }}
           SMTP_PASS:    ${{ secrets.SMTP_PASS }}
 
           # 提升 arXiv API 抗抖参数

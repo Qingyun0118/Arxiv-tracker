@@ -42,13 +42,27 @@ def _cosine(v1: List[float], v2: List[float]) -> float:
     return _dot(v1, v2) / (n1 * n2)
 
 
+def _resolve_env_preferred(cfg: Dict[str, Any], value_key: str, env_key: str) -> str:
+    env_name = str(cfg.get(env_key) or "").strip()
+    if env_name:
+        env_value = os.getenv(env_name, "").strip()
+        if env_value:
+            return env_value
+    return str(cfg.get(value_key) or "").strip()
+
+
 def _embed_texts(texts: List[str], emb_cfg: Dict[str, Any]) -> List[List[float]]:
     if not texts:
         return []
 
-    base_url = emb_cfg.get("base_url") or ""
-    api_key = emb_cfg.get("api_key") or os.getenv(emb_cfg.get("api_key_env") or "OPENAI_COMPAT_API_KEY", "")
-    model = emb_cfg.get("model") or "text-embedding-3-small"
+    base_url = _resolve_env_preferred(emb_cfg, "base_url", "base_url_env")
+
+    api_key = str(emb_cfg.get("api_key") or "").strip()
+    if not api_key:
+        api_key_env = str(emb_cfg.get("api_key_env") or "OPENAI_COMPAT_API_KEY").strip()
+        api_key = os.getenv(api_key_env, "").strip()
+
+    model = _resolve_env_preferred(emb_cfg, "model", "model_env") or "text-embedding-3-small"
     batch_size = int(emb_cfg.get("batch_size", 64))
     timeout = int(emb_cfg.get("timeout", 45))
 
@@ -85,14 +99,38 @@ def _safe_date(value: str) -> datetime:
         return datetime(1970, 1, 1)
 
 
+def _normalize_include_patterns(value: Any) -> List[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        parts = value.replace(";", ",").split(",")
+        return [p.strip() for p in parts if p.strip()]
+    if isinstance(value, (list, tuple, set)):
+        out: List[str] = []
+        for item in value:
+            s = str(item).strip()
+            if s:
+                out.append(s)
+        return out
+    s = str(value).strip()
+    return [s] if s else []
+
+
 def _read_zotero_corpus(semantic_cfg: Dict[str, Any]) -> List[str]:
+    zotero_cfg = semantic_cfg.get("zotero") or {}
+    include_patterns = _normalize_include_patterns(zotero_cfg.get("include_path"))
+    require_include_path = bool(zotero_cfg.get("require_include_path", True))
+    if require_include_path and not include_patterns:
+        raise RuntimeError(
+            "zotero include_path is required when semantic.enabled=true "
+            "(set semantic.zotero.include_path, e.g. ['2026/rl/**'])."
+        )
+
     if pyzotero is None:
         raise RuntimeError("pyzotero is not installed")
 
-    zotero_cfg = semantic_cfg.get("zotero") or {}
     user_id = zotero_cfg.get("user_id") or os.getenv(zotero_cfg.get("user_id_env") or "ZOTERO_ID", "")
     api_key = zotero_cfg.get("api_key") or os.getenv(zotero_cfg.get("api_key_env") or "ZOTERO_KEY", "")
-    include_patterns = zotero_cfg.get("include_path") or []
     max_corpus = int(zotero_cfg.get("max_corpus", 300))
 
     if not user_id or not api_key:

@@ -42,6 +42,31 @@ def _load_raw_cfg(maybe_path):
         return yaml.safe_load(f) or {}
 
 
+def _resolve_llm_runtime_cfg(llm_cfg):
+    """Resolve LLM endpoint/model with env override support.
+
+    Priority: env(var names in config) > config literal values.
+    """
+    cfg = (llm_cfg or {}).copy()
+
+    base_url_env = str(cfg.get("base_url_env") or "").strip()
+    model_env = str(cfg.get("model_env") or "").strip()
+
+    if base_url_env:
+        env_base_url = os.getenv(base_url_env, "").strip()
+        if env_base_url:
+            cfg["base_url"] = env_base_url
+
+    if model_env:
+        env_model = os.getenv(model_env, "").strip()
+        if env_model:
+            cfg["model"] = env_model
+
+    cfg["base_url"] = str(cfg.get("base_url") or "").strip()
+    cfg["model"] = str(cfg.get("model") or "").strip()
+    return cfg
+
+
 def _extract_stamp_from_path(path: str) -> str:
     """从 outputs/arxiv_YYYYMMDD_HHMMSS.json 推断快照 stamp；兜底为当天日期"""
     try:
@@ -127,7 +152,7 @@ def run(config_path, categories, keywords, keyword_expression, exclude_keywords,
 
         # 摘要
         summary_cfg = raw_cfg.get("summary", {}) or {}
-        llm_cfg = raw_cfg.get("llm", {}) or {}
+        llm_cfg = _resolve_llm_runtime_cfg(raw_cfg.get("llm", {}) or {})
         mode = summary_mode or summary_cfg.get("mode", "none")
         scope = summary_scope or summary_cfg.get("scope", "both")
 

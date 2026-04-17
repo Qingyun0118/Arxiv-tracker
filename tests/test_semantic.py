@@ -1,10 +1,40 @@
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
-from arxiv_tracker.semantic import rerank_items_with_zotero
+from arxiv_tracker.semantic import _embed_texts, rerank_items_with_zotero
 
 
 class SemanticRerankTests(unittest.TestCase):
+    def test_embed_texts_resolves_env(self):
+        response = Mock()
+        response.raise_for_status.return_value = None
+        response.json.return_value = {"data": [{"embedding": [0.12, 0.34]}]}
+
+        with patch.dict(
+            "os.environ",
+            {
+                "SEMANTIC_EMBED_BASE_URL": "https://api.deepseek.com",
+                "SEMANTIC_EMBED_MODEL": "text-embedding-3-small",
+                "SEMANTIC_EMBED_API_KEY": "sk-semantic",
+            },
+            clear=False,
+        ), patch("arxiv_tracker.semantic.requests.post", return_value=response) as post:
+            vecs = _embed_texts(
+                ["abc"],
+                {
+                    "base_url_env": "SEMANTIC_EMBED_BASE_URL",
+                    "model_env": "SEMANTIC_EMBED_MODEL",
+                    "api_key_env": "SEMANTIC_EMBED_API_KEY",
+                    "batch_size": 64,
+                    "timeout": 45,
+                },
+            )
+
+        self.assertEqual(vecs, [[0.12, 0.34]])
+        self.assertEqual(post.call_args.args[0], "https://api.deepseek.com/v1/embeddings")
+        self.assertEqual(post.call_args.kwargs["json"]["model"], "text-embedding-3-small")
+        self.assertEqual(post.call_args.kwargs["headers"]["Authorization"], "Bearer sk-semantic")
+
     def test_rerank_disabled_is_noop(self):
         items = [{"id": "a", "title": "A", "summary": "alpha"}]
         ranked, scores, warning = rerank_items_with_zotero(items, {"enabled": False})
@@ -20,6 +50,20 @@ class SemanticRerankTests(unittest.TestCase):
         self.assertEqual(ranked, items)
         self.assertEqual(scores, {})
         self.assertIn("zotero corpus is empty", warning or "")
+
+    def test_rerank_requires_include_path_by_default(self):
+        items = [{"id": "a", "title": "A", "summary": "alpha"}]
+        ranked, scores, warning = rerank_items_with_zotero(
+            items,
+            {
+                "enabled": True,
+                "zotero": {"require_include_path": True, "include_path": []},
+            },
+        )
+
+        self.assertEqual(ranked, items)
+        self.assertEqual(scores, {})
+        self.assertIn("include_path is required", warning or "")
 
     def test_rerank_scores_and_sorts(self):
         items = [

@@ -65,23 +65,29 @@ requirements.txt      # 运行依赖
 
 点击右上角 **Fork**，得到你自己的副本。
 
-### 2) 配置 Secrets & Variables
+### 2) 配置 Secrets（推荐全部使用机密）
 
 > Settings → **Secrets and variables** → **Actions**
+
+> 为避免个人信息泄露，建议所有运行参数都配置在 **Secrets**，不要放在 **Variables**。
 
 **Secrets（机密）**
 
 - `OPENAI_COMPAT_API_KEY`：任意 OpenAI 兼容平台的 API Key（如 **DeepSeek**、**SiliconFlow**）  
-- `SMTP_PASS`：QQ 邮箱 **SMTP 授权码**（非登录密码）
-- `SERPAPI_API_KEY`：Google Scholar 检索 API Key（若启用 `sources.scholar`）
-- `ZOTERO_KEY`：Zotero API Key（若启用语义重排）
-
-**Variables（非机密，可用 Secrets 替代）**
-
+- `OPENAI_COMPAT_BASE_URL`：LLM 服务 Base URL（如 `https://api.deepseek.com` 或 `https://api.siliconflow.cn`）
+- `OPENAI_COMPAT_MODEL`：LLM 模型名（如 `deepseek-chat`、`Qwen/Qwen2.5-7B-Instruct`）
+- `SEMANTIC_EMBED_BASE_URL`：语义重排 Embedding 服务 Base URL（启用 `semantic.enabled` 时使用）
+- `SEMANTIC_EMBED_MODEL`：语义重排 Embedding 模型名（启用 `semantic.enabled` 时使用）
+- `SEMANTIC_EMBED_API_KEY`：语义重排 Embedding API Key（启用 `semantic.enabled` 时使用）
 - `EMAIL_TO`：收件人（多个用 `,` 或 `;` 分隔，比如 `a@qq.com,b@xx.com`）
 - `EMAIL_SENDER`：发件人邮箱（通常与 SMTP 用户一致，比如 `xxx@qq.com`）
 - `SMTP_USER`：SMTP 用户名（通常 = 发件人邮箱，比如 `xxx@qq.com`）
+- `SMTP_PASS`：QQ 邮箱 **SMTP 授权码**（非登录密码）
+- `SERPAPI_API_KEY`：Google Scholar 检索 API Key（若启用 `sources.scholar`）
 - `ZOTERO_ID`：Zotero 用户 ID（若启用语义重排）
+- `ZOTERO_KEY`：Zotero API Key（若启用语义重排）
+
+> 启用语义重排时，请在 `config.yaml` 里填写 `semantic.zotero.include_path`（只重排指定收藏夹路径）。
 
 ### 3) 启用 GitHub Pages
 
@@ -100,7 +106,7 @@ on:
       send_email:
         description: "Send email for manual run?"
         required: false
-        default: "false"
+        default: "true"
         type: choice
         options: ["false", "true"]
   schedule:
@@ -136,10 +142,20 @@ jobs:
 
       - name: Run tracker (schedule-only email unless forced)
         env:
+          OPENAI_COMPAT_BASE_URL: ${{ secrets.OPENAI_COMPAT_BASE_URL }}
+          OPENAI_COMPAT_MODEL:    ${{ secrets.OPENAI_COMPAT_MODEL }}
           OPENAI_COMPAT_API_KEY: ${{ secrets.OPENAI_COMPAT_API_KEY }}
-          EMAIL_TO:     ${{ secrets.EMAIL_TO   || vars.EMAIL_TO }}
-          EMAIL_SENDER: ${{ secrets.EMAIL_SENDER || vars.EMAIL_SENDER }}
-          SMTP_USER:    ${{ secrets.SMTP_USER  || vars.SMTP_USER }}
+          # 下面三项在启用 semantic.enabled 时需要
+          SEMANTIC_EMBED_BASE_URL: ${{ secrets.SEMANTIC_EMBED_BASE_URL }}
+          SEMANTIC_EMBED_MODEL:    ${{ secrets.SEMANTIC_EMBED_MODEL }}
+          SEMANTIC_EMBED_API_KEY:  ${{ secrets.SEMANTIC_EMBED_API_KEY }}
+          # 下面三项按功能开关启用
+          SERPAPI_API_KEY: ${{ secrets.SERPAPI_API_KEY }}
+          ZOTERO_ID:       ${{ secrets.ZOTERO_ID }}
+          ZOTERO_KEY:      ${{ secrets.ZOTERO_KEY }}
+          EMAIL_TO:     ${{ secrets.EMAIL_TO }}
+          EMAIL_SENDER: ${{ secrets.EMAIL_SENDER }}
+          SMTP_USER:    ${{ secrets.SMTP_USER }}
           SMTP_PASS:    ${{ secrets.SMTP_PASS }}
         run: |
           set -e
@@ -204,8 +220,14 @@ summary:
 
 # === LLM（OpenAI-Compatible，DeepSeek / SiliconFlow 均可） ===
 llm:
-  base_url: "https://api.deepseek.com"     # 或 "https://api.siliconflow.cn"
-  model: "deepseek-chat"                   # 例：SiliconFlow 可用 "Qwen/Qwen3-8B"
+  # 推荐：用环境变量注入，不在仓库中写死
+  base_url: ""
+  model: ""
+  base_url_env: "OPENAI_COMPAT_BASE_URL"
+  model_env: "OPENAI_COMPAT_MODEL"
+  # 若你只在本地测试，也可直接写死：
+  # base_url: "https://api.deepseek.com"
+  # model: "deepseek-chat"
   api_key_env: "OPENAI_COMPAT_API_KEY"     # 统一密钥环境变量
   system_prompt_en: |
     You are a senior paper-reading assistant...
@@ -246,9 +268,32 @@ freshness:
   unique_only: true           # 开启跨天去重
   state_path: ".state/seen.json"
   fallback_when_empty: false  # 当当天无新增时是否回退展示最近 top 若干
+
+# === Zotero 语义重排（建议限定路径，避免全库噪声） ===
+semantic:
+  enabled: true
+  zotero:
+    user_id_env: "ZOTERO_ID"
+    api_key_env: "ZOTERO_KEY"
+    require_include_path: true
+    include_path:
+      - "2026/rl-auv/**"
+      - "2026/multi-agent/**"
+    max_corpus: 300
+  embedding:
+    # BaseURL / model / api key 全部走 Secrets 环境变量注入
+    base_url: ""
+    model: ""
+    base_url_env: "SEMANTIC_EMBED_BASE_URL"
+    model_env: "SEMANTIC_EMBED_MODEL"
+    api_key_env: "SEMANTIC_EMBED_API_KEY"
+    batch_size: 64
+    timeout: 45
 ```
 
 > **搜索逻辑**：默认 `categories` 内 OR、`keywords` 内 OR，再由 `logic` 连接。若配置 `keyword_expression`，会启用严格布尔解析（括号 + `AND/OR`），并优先覆盖 `keywords`。
+>
+> **语义重排行为**：当 `semantic.enabled=true` 且 `require_include_path=true` 时，若 `include_path` 为空，会自动跳过语义重排并在日志给出告警。
 
 ---
 
@@ -260,7 +305,16 @@ python -m pip install --upgrade pip
 pip install -r requirements.txt
 
 export OPENAI_COMPAT_API_KEY="你的密钥"
-# base_url/模型在 config.yaml 里配置
+export OPENAI_COMPAT_BASE_URL="https://api.siliconflow.cn"
+export OPENAI_COMPAT_MODEL="Qwen/Qwen2.5-7B-Instruct"
+# 若启用语义重排（semantic.enabled=true），再注入以下三个变量
+export SEMANTIC_EMBED_BASE_URL="https://api.siliconflow.cn"
+export SEMANTIC_EMBED_MODEL="BAAI/bge-m3"
+export SEMANTIC_EMBED_API_KEY="你的Embedding密钥"
+# 若启用 Scholar/Zotero 功能，再注入以下变量
+export SERPAPI_API_KEY="你的SerpApi密钥"
+export ZOTERO_ID="你的Zotero用户ID"
+export ZOTERO_KEY="你的Zotero API Key"
 export EMAIL_TO="your@qq.com"
 export EMAIL_SENDER="your@qq.com"
 export SMTP_USER="your@qq.com"
@@ -277,6 +331,16 @@ python -m pip install --upgrade pip
 pip install -r requirements.txt
 
 $Env:OPENAI_COMPAT_API_KEY = "你的密钥"
+$Env:OPENAI_COMPAT_BASE_URL = "https://api.siliconflow.cn"
+$Env:OPENAI_COMPAT_MODEL = "Qwen/Qwen2.5-7B-Instruct"
+# 若启用语义重排（semantic.enabled=true），再注入以下三个变量
+$Env:SEMANTIC_EMBED_BASE_URL = "https://api.siliconflow.cn"
+$Env:SEMANTIC_EMBED_MODEL = "BAAI/bge-m3"
+$Env:SEMANTIC_EMBED_API_KEY = "你的Embedding密钥"
+# 若启用 Scholar/Zotero 功能，再注入以下变量
+$Env:SERPAPI_API_KEY = "你的SerpApi密钥"
+$Env:ZOTERO_ID = "你的Zotero用户ID"
+$Env:ZOTERO_KEY = "你的Zotero API Key"
 $Env:EMAIL_TO     = "your@qq.com"
 $Env:EMAIL_SENDER = "your@qq.com"
 $Env:SMTP_USER    = "your@qq.com"
