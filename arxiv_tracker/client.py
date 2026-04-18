@@ -62,7 +62,11 @@ def _sleep_backoff(attempt: int, resp: Optional[requests.Response] = None) -> No
     """
     retry_after = _retry_after_delay(resp)
     if retry_after is not None:
-        jitter = random.uniform(0, min(MAX_JITTER_SECONDS, retry_after * RETRY_AFTER_JITTER_FACTOR)) if retry_after > 0 else 0.0
+        if retry_after > 0:
+            jitter_cap = min(MAX_JITTER_SECONDS, retry_after * RETRY_AFTER_JITTER_FACTOR)
+            jitter = random.uniform(0, jitter_cap)
+        else:
+            jitter = 0.0
         delay = min(retry_after + jitter, MAX_SLEEP)
     else:
         delay = min(BASE_PAUSE * (2 ** (attempt - 1)) + random.uniform(0, MAX_JITTER_SECONDS), MAX_SLEEP)
