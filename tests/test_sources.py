@@ -143,9 +143,11 @@ class SourceCollectionTests(unittest.TestCase):
             }
         }
 
+        resp = requests.Response()
+        resp.status_code = 429
         with patch(
             "arxiv_tracker.sources._fetch_arxiv_items",
-            side_effect=requests.exceptions.HTTPError("HTTP 429"),
+            side_effect=requests.exceptions.HTTPError("HTTP 429", response=resp),
         ):
             items, meta = collect_items(
                 cfg,

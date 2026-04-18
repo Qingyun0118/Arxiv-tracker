@@ -970,7 +970,10 @@ def collect_items(
                 seen_ids=seen_ids,
                 fallback_when_empty=fallback_when_empty,
             )
-        except Exception as e:
+        except requests.exceptions.HTTPError as e:
+            status = getattr(getattr(e, "response", None), "status_code", None)
+            if status != 429:
+                raise
             arxiv_items, arxiv_query = [], ""
             meta["warnings"].append(f"arXiv request failed: {e}")
         all_items.extend(arxiv_items)
