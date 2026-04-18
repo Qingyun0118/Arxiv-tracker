@@ -160,7 +160,7 @@ class SourceCollectionTests(unittest.TestCase):
 
         self.assertEqual(items, [])
         self.assertTrue(meta.get("warnings"))
-        self.assertIn("arXiv request failed", meta["warnings"][0])
+        self.assertIn("arXiv request rate limited", meta["warnings"][0])
         self.assertIn("HTTP 429", meta["warnings"][0])
 
     def test_scholar_abstract_enrichment_replaces_short_snippet(self):

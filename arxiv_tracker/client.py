@@ -18,8 +18,8 @@ DEFAULT_TIMEOUT = float(os.getenv("ARXIV_TIMEOUT", "45"))      # 单次请求超
 MAX_ATTEMPTS    = int(os.getenv("ARXIV_MAX_ATTEMPTS", "6"))    # 尝试次数
 BASE_PAUSE      = float(os.getenv("ARXIV_PAUSE", "1.5"))       # 基础退避（秒）
 MAX_SLEEP       = float(os.getenv("ARXIV_MAX_SLEEP", "20"))    # 退避上限（秒）
-RETRY_AFTER_JITTER_FACTOR = 0.1
-MAX_JITTER_SECONDS = 0.5
+RETRY_AFTER_JITTER_FACTOR = 0.1  # Retry-After 场景下，抖动上限为该比例（10%）
+MAX_JITTER_SECONDS = 0.5         # 绝对抖动上限（秒）
 
 RETRYABLE_STATUS = {429, 500, 502, 503, 504}
 
@@ -58,7 +58,8 @@ def _retry_after_delay(resp: Optional[requests.Response]) -> Optional[float]:
 def _sleep_backoff(attempt: int, resp: Optional[requests.Response] = None) -> None:
     """
     指数退避 + 抖动。第 1 次失败等待 ~BASE_PAUSE，
-    之后 2^n 递增，并加 0~0.5 随机抖动，封顶 MAX_SLEEP。
+    之后 2^n 递增，并加 0~MAX_JITTER_SECONDS 随机抖动，封顶 MAX_SLEEP。
+    若响应带 Retry-After，则优先按 Retry-After 等待，并加轻微抖动。
     """
     retry_after = _retry_after_delay(resp)
     if retry_after is not None:

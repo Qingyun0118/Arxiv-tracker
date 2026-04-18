@@ -975,7 +975,7 @@ def collect_items(
             if status != 429:
                 raise
             arxiv_items, arxiv_query = [], ""
-            meta["warnings"].append(f"arXiv request failed: {e}")
+            meta["warnings"].append(f"arXiv request rate limited (HTTP 429): {e}")
         all_items.extend(arxiv_items)
         meta["queries"]["arxiv"] = arxiv_query
         meta["counts"]["arxiv"] = len(arxiv_items)
