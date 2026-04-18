@@ -1,6 +1,7 @@
 import os
 import tempfile
 import unittest
+import requests
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -120,6 +121,45 @@ class SourceCollectionTests(unittest.TestCase):
             meta.get("queries", {}).get("scholar"),
             '"reinforcement learning" AND "collision avoidance"',
         )
+
+    def test_collect_items_warns_when_arxiv_rate_limited(self):
+        cfg = SimpleNamespace(
+            categories=["cs.AI"],
+            keywords=["robotics"],
+            keyword_expression="",
+            exclude_keywords=[],
+            logic="AND",
+            max_results=10,
+            sort_by="lastUpdatedDate",
+            sort_order="descending",
+        )
+
+        raw_cfg = {
+            "sources": {
+                "enabled": ["arxiv"],
+                "priority": ["arxiv"],
+                "max_candidates": 10,
+                "arxiv": {"max_results": 5, "page_size": 5, "max_pages": 1},
+            }
+        }
+
+        with patch(
+            "arxiv_tracker.sources._fetch_arxiv_items",
+            side_effect=requests.exceptions.HTTPError("HTTP 429"),
+        ):
+            items, meta = collect_items(
+                cfg,
+                raw_cfg,
+                since_days=0,
+                unique_only=False,
+                seen_ids=set(),
+                fallback_when_empty=False,
+            )
+
+        self.assertEqual(items, [])
+        self.assertTrue(meta.get("warnings"))
+        self.assertIn("arXiv request failed", meta["warnings"][0])
+        self.assertIn("HTTP 429", meta["warnings"][0])
 
     def test_scholar_abstract_enrichment_replaces_short_snippet(self):
         items = [

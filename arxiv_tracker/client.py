@@ -5,6 +5,8 @@ import os
 import time
 import random
 import requests
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from typing import Dict, Optional
 
 # 首选 HTTPS，失败时回退到 HTTP（某些网络下 HTTPS 易读超）
@@ -28,12 +30,39 @@ HEADERS = {
 _session = requests.Session()
 
 
-def _sleep_backoff(attempt: int) -> None:
+def _retry_after_delay(resp: Optional[requests.Response]) -> Optional[float]:
+    if resp is None:
+        return None
+    raw = (resp.headers or {}).get("Retry-After")
+    if not raw:
+        return None
+
+    s = str(raw).strip()
+    if not s:
+        return None
+
+    if s.isdigit():
+        return max(0.0, float(s))
+
+    try:
+        dt = parsedate_to_datetime(s)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return max(0.0, (dt - datetime.now(timezone.utc)).total_seconds())
+    except Exception:
+        return None
+
+
+def _sleep_backoff(attempt: int, resp: Optional[requests.Response] = None) -> None:
     """
     指数退避 + 抖动。第 1 次失败等待 ~BASE_PAUSE，
     之后 2^n 递增，并加 0~0.5 随机抖动，封顶 MAX_SLEEP。
     """
-    delay = min(BASE_PAUSE * (2 ** (attempt - 1)) + random.uniform(0, 0.5), MAX_SLEEP)
+    retry_after = _retry_after_delay(resp)
+    if retry_after is not None:
+        delay = min(retry_after + random.uniform(0, 0.5), MAX_SLEEP)
+    else:
+        delay = min(BASE_PAUSE * (2 ** (attempt - 1)) + random.uniform(0, 0.5), MAX_SLEEP)
     time.sleep(delay)
 
 
@@ -45,6 +74,7 @@ def _do_get(base_url: str, params: Dict[str, str], timeout: Optional[float] = No
     last_err: Optional[Exception] = None
 
     for attempt in range(1, MAX_ATTEMPTS + 1):
+        retry_resp: Optional[requests.Response] = None
         try:
             resp = _session.get(base_url, params=params, headers=HEADERS, timeout=timeout)
             # 主动对可重试状态码抛出异常，以走重试逻辑
@@ -61,10 +91,11 @@ def _do_get(base_url: str, params: Dict[str, str], timeout: Optional[float] = No
             st = getattr(e.response, "status_code", None)
             if st not in RETRYABLE_STATUS:
                 break
+            retry_resp = e.response
 
         # 还有机会就退避后继续
         if attempt < MAX_ATTEMPTS:
-            _sleep_backoff(attempt)
+            _sleep_backoff(attempt, retry_resp)
 
     # 全部失败
     if last_err:
