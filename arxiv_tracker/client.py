@@ -19,6 +19,7 @@ MAX_ATTEMPTS    = int(os.getenv("ARXIV_MAX_ATTEMPTS", "6"))    # 尝试次数
 BASE_PAUSE      = float(os.getenv("ARXIV_PAUSE", "1.5"))       # 基础退避（秒）
 MAX_SLEEP       = float(os.getenv("ARXIV_MAX_SLEEP", "20"))    # 退避上限（秒）
 RETRY_AFTER_JITTER_FACTOR = 0.1
+MAX_JITTER_SECONDS = 0.5
 
 RETRYABLE_STATUS = {429, 500, 502, 503, 504}
 
@@ -61,10 +62,10 @@ def _sleep_backoff(attempt: int, resp: Optional[requests.Response] = None) -> No
     """
     retry_after = _retry_after_delay(resp)
     if retry_after is not None:
-        jitter = random.uniform(0, min(0.5, retry_after * RETRY_AFTER_JITTER_FACTOR)) if retry_after > 0 else 0.0
+        jitter = random.uniform(0, min(MAX_JITTER_SECONDS, retry_after * RETRY_AFTER_JITTER_FACTOR)) if retry_after > 0 else 0.0
         delay = min(retry_after + jitter, MAX_SLEEP)
     else:
-        delay = min(BASE_PAUSE * (2 ** (attempt - 1)) + random.uniform(0, 0.5), MAX_SLEEP)
+        delay = min(BASE_PAUSE * (2 ** (attempt - 1)) + random.uniform(0, MAX_JITTER_SECONDS), MAX_SLEEP)
     time.sleep(delay)
 
 

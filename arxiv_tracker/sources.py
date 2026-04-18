@@ -971,7 +971,7 @@ def collect_items(
                 fallback_when_empty=fallback_when_empty,
             )
         except requests.exceptions.HTTPError as e:
-            status = getattr(getattr(e, "response", None), "status_code", None)
+            status = e.response.status_code if e.response is not None else None
             if status != 429:
                 raise
             arxiv_items, arxiv_query = [], ""
