@@ -5,6 +5,8 @@ import os
 import time
 import random
 import requests
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from typing import Dict, Optional
 
 # 首选 HTTPS，失败时回退到 HTTP（某些网络下 HTTPS 易读超）
@@ -16,6 +18,8 @@ DEFAULT_TIMEOUT = float(os.getenv("ARXIV_TIMEOUT", "45"))      # 单次请求超
 MAX_ATTEMPTS    = int(os.getenv("ARXIV_MAX_ATTEMPTS", "6"))    # 尝试次数
 BASE_PAUSE      = float(os.getenv("ARXIV_PAUSE", "1.5"))       # 基础退避（秒）
 MAX_SLEEP       = float(os.getenv("ARXIV_MAX_SLEEP", "20"))    # 退避上限（秒）
+RETRY_AFTER_JITTER_FACTOR = 0.1  # Retry-After 场景下，抖动上限为该比例（10%）
+MAX_JITTER_SECONDS = 0.5         # 绝对抖动上限（秒）
 
 RETRYABLE_STATUS = {429, 500, 502, 503, 504}
 
@@ -28,12 +32,45 @@ HEADERS = {
 _session = requests.Session()
 
 
-def _sleep_backoff(attempt: int) -> None:
+def _retry_after_delay(resp: Optional[requests.Response]) -> Optional[float]:
+    if resp is None:
+        return None
+    raw = (resp.headers or {}).get("Retry-After")
+    if not raw:
+        return None
+
+    s = str(raw).strip()
+    if not s:
+        return None
+
+    if s.isdigit():
+        return max(0.0, float(s))
+
+    try:
+        dt = parsedate_to_datetime(s)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return max(0.0, (dt - datetime.now(timezone.utc)).total_seconds())
+    except Exception:
+        return None
+
+
+def _sleep_backoff(attempt: int, resp: Optional[requests.Response] = None) -> None:
     """
     指数退避 + 抖动。第 1 次失败等待 ~BASE_PAUSE，
-    之后 2^n 递增，并加 0~0.5 随机抖动，封顶 MAX_SLEEP。
+    之后 2^n 递增，并加 0~MAX_JITTER_SECONDS 随机抖动，封顶 MAX_SLEEP。
+    若响应带 Retry-After，则优先按 Retry-After 等待，并加轻微抖动。
     """
-    delay = min(BASE_PAUSE * (2 ** (attempt - 1)) + random.uniform(0, 0.5), MAX_SLEEP)
+    retry_after = _retry_after_delay(resp)
+    if retry_after is not None:
+        if retry_after > 0:
+            jitter_cap = min(MAX_JITTER_SECONDS, retry_after * RETRY_AFTER_JITTER_FACTOR)
+            jitter = random.uniform(0, jitter_cap)
+        else:
+            jitter = 0.0
+        delay = min(retry_after + jitter, MAX_SLEEP)
+    else:
+        delay = min(BASE_PAUSE * (2 ** (attempt - 1)) + random.uniform(0, MAX_JITTER_SECONDS), MAX_SLEEP)
     time.sleep(delay)
 
 
@@ -45,6 +82,7 @@ def _do_get(base_url: str, params: Dict[str, str], timeout: Optional[float] = No
     last_err: Optional[Exception] = None
 
     for attempt in range(1, MAX_ATTEMPTS + 1):
+        retry_resp: Optional[requests.Response] = None
         try:
             resp = _session.get(base_url, params=params, headers=HEADERS, timeout=timeout)
             # 主动对可重试状态码抛出异常，以走重试逻辑
@@ -61,10 +99,11 @@ def _do_get(base_url: str, params: Dict[str, str], timeout: Optional[float] = No
             st = getattr(e.response, "status_code", None)
             if st not in RETRYABLE_STATUS:
                 break
+            retry_resp = e.response
 
         # 还有机会就退避后继续
         if attempt < MAX_ATTEMPTS:
-            _sleep_backoff(attempt)
+            _sleep_backoff(attempt, retry_resp)
 
     # 全部失败
     if last_err:

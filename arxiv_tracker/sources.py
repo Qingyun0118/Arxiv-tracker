@@ -961,14 +961,21 @@ def collect_items(
 
     if "arxiv" in enabled_sources:
         arxiv_cfg = sources_cfg.get("arxiv") or {}
-        arxiv_items, arxiv_query = _fetch_arxiv_items(
-            cfg,
-            arxiv_cfg=arxiv_cfg,
-            cutoff=cutoff,
-            unique_only=unique_only,
-            seen_ids=seen_ids,
-            fallback_when_empty=fallback_when_empty,
-        )
+        try:
+            arxiv_items, arxiv_query = _fetch_arxiv_items(
+                cfg,
+                arxiv_cfg=arxiv_cfg,
+                cutoff=cutoff,
+                unique_only=unique_only,
+                seen_ids=seen_ids,
+                fallback_when_empty=fallback_when_empty,
+            )
+        except requests.exceptions.HTTPError as e:
+            status = e.response.status_code if e.response is not None else None
+            if status != 429:
+                raise
+            arxiv_items, arxiv_query = [], ""
+            meta["warnings"].append(f"arXiv request rate limited (HTTP 429): {e}")
         all_items.extend(arxiv_items)
         meta["queries"]["arxiv"] = arxiv_query
         meta["counts"]["arxiv"] = len(arxiv_items)
